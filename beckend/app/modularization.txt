@@ -1,0 +1,17 @@
+backend/
+│
+├── app/
+│   ├── main.py            # FastAPI entrypoint ( सिर्फ app init + routers include )
+│   ├── db.py              # Database setup (engine, metadata, SessionLocal, database var)
+│   ├── models.py          # SQLAlchemy models & tables
+│   ├── utils/
+│   │   ├── ocr.py         # OCR processing, preprocess, spellchecker
+│   │   └── files.py       # File save / path management
+│   ├── routes/
+│   │   ├── upload.py      # upload endpoints (block/line)
+│   │   ├── documents.py   # list documents, get document
+│   │   └── health.py      # health check
+│   └── __init__.py
+│
+├── uploads/              # uploaded files
+├── extracted_text/       # extracted OCR text

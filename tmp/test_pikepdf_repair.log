@@ -1,0 +1,8 @@
+--- PikePDF Repair on e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_high_corrupt.pdf ---
+FAILED: e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_high_corrupt.pdf: unable to find trailer dictionary while recovering damaged file
+--- PikePDF Repair on e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_low_corrupt.pdf ---
+SUCCESS! Output size: 515329 bytes
+  Pages rebuilt: 9
+  Warning: No text could be extracted from the first 5 pages.
+--- PikePDF Repair on e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_medium_corrupt.pdf ---
+FAILED: e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_medium_corrupt.pdf: root of pages tree has no /Kids array

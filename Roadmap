@@ -1,0 +1,212 @@
+📌 Roadmap – DocIntel PDF Suite
+
+✅ Phase 1 (जो already हो चुका है / चल रहा है)
+
+        File Upload (Images + PDFs)
+
+        OCR (English, Hindi, Multi-language)
+
+        Extracted Text Pagination + Copy Button
+
+        Documents List (with created_at, filename)
+
+        Document Detail Page (with extracted text)
+
+
+🚀 Phase 2 (Core PDF Tools – आसान वाले)
+
+        👉 इन्हें implement करना काफी simple है क्योंकि Python libraries ready हैं।
+
+        Merge PDF (PyPDF2 / pikepdf)
+
+        Multiple PDFs → Single PDF
+
+        Split PDF (PyPDF2)
+
+        Single PDF → Multiple PDFs (page range select करके)
+
+        Extract Pages
+
+        User specific pages निकाल पाए।
+
+        Rotate PDF
+
+        90°, 180°, 270° rotation
+
+        Add Page Numbers
+
+        reportlab से watermark की तरह numbers डालना।
+
+        Add Watermark
+
+        User ka text ya image watermark add करना।
+
+🔥 Phase 3 (Advanced PDF Tools)
+
+        ये थोड़े ज्यादा advanced हैं लेकिन possible हैं।
+
+        Compress PDF
+
+        Ghostscript bindings या pikepdf.optimize()
+
+        Protect / Unlock PDF
+
+        Password लगाना/हटाना
+
+        Organize PDF
+
+        Drag & Drop से page reorder
+
+        Convert PDF <-> Image
+
+        PDF → JPG/PNG
+
+        JPG/PNG → PDF
+
+💎 Phase 4 (Pro Features – जब commercial बनाना हो)
+
+        Convert PDF <-> Word/Excel/PPT/HTML
+
+        LibreOffice / unoconv / external APIs
+
+        OCR PDF (already hai but improve with Tesseract training)
+
+        बेहतर accuracy (custom dictionaries, ML models)
+
+        Sign PDF (Digital Signature support)
+
+        Advanced enterprise-level feature
+
+        Compare PDFs
+
+        दो PDFs का diff निकालना
+
+🌍 Deployment Plan
+
+Frontend (Next.js) → Vercel (free tier start)
+
+Backend (FastAPI) → Railway/Render (free start, later AWS/GCP/Azure)
+
+DB (Postgres) → Supabase / Neon (cloud hosted, free tier start)
+
+Domain → Google Domains / Namecheap (₹800-₹1200 per year)
+
+⚡️ Final Vision:
+👉 DocIntel = All-in-One OCR + PDF Toolkit (like iLovePDF + SmallPDF)
+लेकिन तुम्हारा edge ये होगा कि OCR + Hindi Support + Custom ML add-ons मिलेगा।
+
+अब भाई बता →
+कल से हम Phase 2 start करें? (पहले Merge PDF + Split PDF implement करके UI में option डालें?)
+
+
+Compare
+
+🔍 iLovePDF का विश्लेषण (Features + Business Model)
+प्रमुख फीचर्स
+
+Merge, Split, Compress, Convert PDF ↔ Office/Image formats आदि। 
+Software Advice
++2
+iLovePDF - Online tools for PDF
++2
+
+OCR functionality (scanned PDFs को searchable / editable बनाना)। 
+Software Advice
++1
+
+Add watermark, page numbers, rotate, remove/unlock pages, reorder pages आदि। 
+GetApp
++1
+
+Support Web, Desktop, Mobile platform। 
+iLovePDF - Online tools for PDF
++1
+
+REST API / integrations + cloud storage (Google Drive, Dropbox) के साथ काम करना। 
+GetApp
++1
+
+Monetization / Business Model
+
+Free Plan: Basic tools + limited document size + limited number of tasks per day + ads। 
+Tekpon
++2
+iLovePDF - Online tools for PDF
++2
+
+Premium Plan: Monthly / yearly subscription मिलता है जिसमें बड़े file limits, ad-free experience, priority support, सभी tools unlock होना। 
+iLovePDF - Online tools for PDF
++2
+Software Advice
++2
+
+Business / Enterprise Plan: बड़े उपयोगकर्ताओं के लिए custom pricing, टीम सपोर्ट, Single Sign-On (SSO), dedicated account manager आदि। 
+iLovePDF - Online tools for PDF
++1
+
+Users के Feedback / Limitations
+
+फ्री version users कह रहे हैं कि file size और daily task limit छोटे हैं; कई बार OCR accuracy या conversion quality perfect नहीं होती बड़ी files में। 
+GetApp
++1
+
+Ads और UI interruptions (free users को) कुछ users को पसंद नहीं। 
+GetApp
+
+Advanced tools सिर्फ premium users को।
+
+✅ जो सीख DocIntel के लिए इस्तेमाल कर सकते हो
+
+ये चीज़ें DocIntel में implement करने से बहुत फायदा होगा:
+
+Clear free vs premium boundary
+
+Basic free tools (OCR, Extract, small PDFs)
+
+Premium tools (Merge, Compress, large files, watermark removal, advanced OCR)
+
+User accounts + Payment system
+
+Users को signup/login करना होगा।
+
+Subscription plan (monthly/yearly) लागू हो।
+
+Payment gateway integrate करना होगा (Stripe / Razorpay आदि)
+
+API / Integration
+
+Google Drive / Dropbox से directly files लेना देना हो सकता है।
+
+REST API देना ताकि अन्य apps use कर सकें।
+
+UX / Performance
+
+UI सरल और clean होना चाहिए।
+
+Processing speed + error handling strong होनी चाहिए।
+
+Security, Privacy
+
+Uploaded files को encrypt करना, auto-delete policy होना चाहिए।
+
+Users का data safe हो।
+
+Scalability
+
+लॉगिंग, monitoring, server infrastructure ऐसा कि बढ़ते users handle कर सके।
+
+⚙️ Final सुझाव / फीचर्स जो DocIntel में पहले-पहले जोड़ने चाहिए
+
+कल से Phase 2 शुरू करते हुए ये पहले काम करो:
+
+Merge PDF
+
+Split PDF
+
+Convert Image -> PDF, PDF -> Image
+
+Add rotate / watermark
+
+Setup user auth + subscription plan (free vs premium)
+
+और उसी के साथ UI में एक clean tools page बनाओ जहाँ user चुन सके कौन सा टूल use करना है।

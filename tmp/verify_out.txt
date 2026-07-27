@@ -1,0 +1,9 @@
+PyMuPDF version: ('1.27.2.2', '1.27.2', None)
+Created unrotated page. page.rect =: Rect(0.0, 0.0, 300.0, 500.0) rotation =: 0
+Rotated page to 90 degrees. page.rect =: Rect(0.0, 0.0, 500.0, 300.0) rotation =: 90
+Drew rect at: Rect(50.0, 50.0, 150.0, 270.0)
+Drew circle at Point(100, 100)
+Re-opened page.rect =: Rect(0.0, 0.0, 500.0, 300.0) rotation =: 90
+Drawings in saved PDF:
+  type =: fs rect =: Rect(50.0, 50.0, 150.0, 270.0)
+  type =: fs rect =: Rect(80.0, 80.0, 120.0, 120.0)

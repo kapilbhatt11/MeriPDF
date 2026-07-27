@@ -1,0 +1,64 @@
+🎯 Plan for Phase 2 → Phase N (till launch)
+Phase 2 (Start tomorrow)
+
+ PDF Tools का बेसिक सेटअप
+
+Merge PDF
+
+Split PDF
+
+Convert PDF ↔ Image
+
+Compress PDF (basic level)
+
+ Frontend में Tools Dashboard Page (जैसे iLovePDF का होता है)।
+
+ Backend endpoints (FastAPI में हर tool का एक API route)।
+
+Phase 3
+
+ User Authentication
+
+Signup / Login / Logout
+
+JWT / Session management
+
+User dashboard: “My Documents”
+
+ Free vs Premium Plan UI
+
+Free users → limited features
+
+Premium → unlimited
+
+Phase 4
+
+ Payment Integration
+
+Razorpay / Stripe जोड़ना
+
+Premium users unlock system बनाना
+
+Subscriptions / One-time purchase
+
+Phase 5
+
+ UI/UX Polish
+
+Dark mode + responsive design
+
+Toast notifications everywhere
+
+Better progress loaders
+
+Phase 6 (Final polish before Diwali 🎉)
+
+ SEO optimize + Deploy (Vercel + Railway/Render backend या AWS)।
+
+ Domain buy करना (Google Domains / GoDaddy)।
+
+ Docs + Small Marketing push (share, blog, LinkedIn, Reddit)।
+
+👉 मतलब Diwali तक तुम्हारा DocIntel ready होगा — एक mini iLovePDF + OCR SaaS 🚀
+
+क्या तुम चाहोगे कि मैं कल से पहले तुम्हें Phase 2 का पूरा roadmap + पहले tool (Merge PDF) का sample backend code लिखकर दे दूँ? ताकि कल हम coding start करें तो direct काम में लग जाएँ?

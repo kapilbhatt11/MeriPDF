@@ -1,0 +1,84 @@
+{
+  "info": {
+    "name": "DocIntel PDF Tools",
+    "_postman_id": "f36f3210-bb1a-48b2-b78d-mergedemo2025",
+    "description": "Postman collection for testing DocIntel FastAPI PDF routes",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Merge PDFs",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "files", "type": "file", "src": ["sample1.pdf", "sample2.pdf"] },
+            { "key": "rotations", "value": "[]", "type": "text" }
+          ]
+        },
+        "url": { "raw": "http://127.0.0.1:8000/pdf/merge-pdf", "protocol": "http", "host": ["127.0.0.1"], "port": "8000", "path": ["pdf", "merge-pdf"] }
+      },
+      "response": []
+    },
+    {
+      "name": "Split All Pages",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [{ "key": "file", "type": "file", "src": ["sample.pdf"] }]
+        },
+        "url": { "raw": "http://127.0.0.1:8000/split/pdf/split/all", "protocol": "http", "host": ["127.0.0.1"], "port": "8000", "path": ["split", "pdf", "split", "all"] }
+      },
+      "response": []
+    },
+    {
+      "name": "Split Manual Pages",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": ["sample.pdf"] },
+            { "key": "pages", "value": "[1,2,4,6]", "type": "text" }
+          ]
+        },
+        "url": { "raw": "http://127.0.0.1:8000/split/pdf/split/manual", "protocol": "http", "host": ["127.0.0.1"], "port": "8000", "path": ["split", "pdf", "split", "manual"] }
+      },
+      "response": []
+    },
+    {
+      "name": "Split Custom Pairs",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": ["sample.pdf"] },
+            { "key": "ranges", "value": "[{\"from\":1,\"to\":4},{\"from\":5,\"to\":8}]", "type": "text" },
+            { "key": "merge_all", "value": "false", "type": "text" }
+          ]
+        },
+        "url": { "raw": "http://127.0.0.1:8000/split/pdf/split/custom", "protocol": "http", "host": ["127.0.0.1"], "port": "8000", "path": ["split", "pdf", "split", "custom"] }
+      },
+      "response": []
+    },
+    {
+      "name": "Split Fixed Size Pairs",
+      "request": {
+        "method": "POST",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": ["sample.pdf"] },
+            { "key": "fixed_size", "value": "5", "type": "text" }
+          ]
+        },
+        "url": { "raw": "http://127.0.0.1:8000/split/pdf/split/fixed", "protocol": "http", "host": ["127.0.0.1"], "port": "8000", "path": ["split", "pdf", "split", "fixed"] }
+      },
+      "response": []
+    }
+  ]
+}

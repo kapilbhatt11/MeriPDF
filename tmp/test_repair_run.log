@@ -1,0 +1,46 @@
+=== Testing: e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\0_valid_test.pdf ===
+Layer 1 PyPDF2: Success
+=== Testing: e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_high_corrupt.pdf ===
+Layer 1 PyPDF2 Failed: startxref not found
+Layer 2 PyMuPDF Mild Failed: cannot save with zero pages
+Layer 3 PyMuPDF Hard Failed: cannot save with zero pages
+Layer 4 Rasterization Failed: cannot save with zero pages
+Traceback (most recent call last):
+  File "e:\AI-PROJECT-WORK\doc-intel\tmp\test_repair.py", line 73, in repair
+    raise Exception("cannot save with zero pages")
+Exception: cannot save with zero pages
+
+=== Testing: e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_low_corrupt.pdf ===
+Layer 1 PyPDF2 Failed: '/Kids'
+Layer 2 PyMuPDF Mild Failed: cannot save with zero pages
+Layer 3 PyMuPDF Hard Failed: cannot save with zero pages
+Layer 4 Rasterization Failed: cannot save with zero pages
+Traceback (most recent call last):
+  File "e:\AI-PROJECT-WORK\doc-intel\tmp\test_repair.py", line 73, in repair
+    raise Exception("cannot save with zero pages")
+Exception: cannot save with zero pages
+
+=== Testing: e:/AI-PROJECT-WORK/doc-intel/corrupt_test_files\nai_sawari_medium_corrupt.pdf ===
+Layer 1 PyPDF2 Failed: startxref not found
+Layer 2 PyMuPDF Mild Failed: Failed to open stream
+Layer 3 PyMuPDF Hard Failed: Failed to open stream
+Layer 4 Rasterization Failed: Failed to open stream
+Traceback (most recent call last):
+  File "E:\AI-PROJECT-WORK\doc-intel\.venv\Lib\site-packages\pymupdf\__init__.py", line 2970, in __init__
+    doc = mupdf.fz_open_document_with_stream(filetype if filetype else '', stream2)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\AI-PROJECT-WORK\doc-intel\.venv\Lib\site-packages\pymupdf\mupdf.py", line 50813, in fz_open_document_with_stream
+    return _mupdf.fz_open_document_with_stream(magic, stream)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pymupdf.mupdf.FzErrorSyntax: code=8: invalid key in dict
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "e:\AI-PROJECT-WORK\doc-intel\tmp\test_repair.py", line 69, in repair
+    doc = fitz.open(stream=raw_bytes, filetype='pdf')
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\AI-PROJECT-WORK\doc-intel\.venv\Lib\site-packages\pymupdf\__init__.py", line 2973, in __init__
+    raise FileDataError('Failed to open stream') from e
+pymupdf.FileDataError: Failed to open stream
+

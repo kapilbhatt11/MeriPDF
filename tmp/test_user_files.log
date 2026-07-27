@@ -1,0 +1,60 @@
+
+========================================
+FILE: corrupted PDF.pdf (Size: 2097152 bytes)
+  Layer 1 (PyPDF2): startxref not found
+  Layer 1.2 (pikepdf): stream <_io.BytesIO object at 0x000001F88F961FD0>: unable to find trailer dictionary while recovering damaged file
+  Layer 1.5 (Ghostscript): SUCCESS
+    Result Size: 2488 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 2 (Fitz Mild): Failed to open stream
+  Layer 4 (Rasterize): Failed to open stream
+
+========================================
+FILE: test_sample_corrupted (1).pdf (Size: 1709 bytes)
+  Layer 1 (PyPDF2): startxref not found
+  Layer 1.2 (pikepdf): SUCCESS
+    Result Size: 855 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 1.5 (Ghostscript): SUCCESS
+    Result Size: 2512 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 2 (Fitz Mild): SUCCESS
+    Result Size: 1178 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 4 (Rasterize): SUCCESS
+    Result Size: 29627 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 1
+
+========================================
+FILE: test_sample_corrupted.pdf (Size: 1709 bytes)
+  Layer 1 (PyPDF2): startxref not found
+  Layer 1.2 (pikepdf): SUCCESS
+    Result Size: 855 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 1.5 (Ghostscript): SUCCESS
+    Result Size: 2512 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 2 (Fitz Mild): SUCCESS
+    Result Size: 1178 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 0
+  Layer 4 (Rasterize): SUCCESS
+    Result Size: 29627 bytes
+    Pages: 1
+    Text length (first 3 pages): 0
+    Images on Page 0: 1
