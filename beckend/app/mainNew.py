@@ -18,7 +18,7 @@ from app.models import documents, extracted_texts
 
 
 
-app = FastAPI(title="DocIntel - OCR Service (block + line modes)")
+app = FastAPI(title="MeriPDF - OCR Service (block + line modes)")
 
 @app.on_event("startup")
 async def startup():

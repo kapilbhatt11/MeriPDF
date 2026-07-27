@@ -47,7 +47,7 @@ async def image_to_pdf(files: list[UploadFile] = File(...)):
             raise HTTPException(status_code=400, detail="Invalid image files provided")
             
         temp_dir = tempfile.gettempdir()
-        output_filename = "Converted_Images_DocIntel.pdf"
+        output_filename = "Converted_Images_MeriPDF.pdf"
         output_path = os.path.join(temp_dir, output_filename)
         
         # Save all images as a single PDF
@@ -471,7 +471,7 @@ async def pdf_to_pdfa(file: UploadFile = File(...)):
         out_doc.set_metadata({
             "format": "PDF 1.4",
             "title": file.filename,
-            "creator": "DocIntel"
+            "creator": "MeriPDF"
         })
         
         # We apply deflate and clean for best archiving packaging

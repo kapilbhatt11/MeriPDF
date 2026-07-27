@@ -169,7 +169,7 @@ async def merge_pdf(files: list[UploadFile] = File(...), rotations: str = Form("
         with open(output_path, "wb") as f:
             writer.write(f)
 
-        return FileResponse(output_path, media_type="application/pdf", filename="DocIntel_Merged.pdf")
+        return FileResponse(output_path, media_type="application/pdf", filename="MeriPDF_Merged.pdf")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Merge failed: {e}")
