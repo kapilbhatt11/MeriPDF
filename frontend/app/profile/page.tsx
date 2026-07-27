@@ -156,7 +156,7 @@ export default function ProfilePage() {
               Happy Birthday!
             </h2>
             <p className="text-slate-500 text-sm font-medium mb-6">
-              Wishing you a fantastic day filled with joy and productivity from the DocIntel team! 🎉
+              Wishing you a fantastic day filled with joy and productivity from the MeriPDF team! 🎉
             </p>
             <button 
               onClick={() => setShowBirthday(false)}
@@ -284,7 +284,7 @@ export default function ProfilePage() {
                           🎂 Happy Birthday, {fullName || "User"}! 🎉
                         </h4>
                         <p className="text-xs text-pink-100/90 mt-1 font-medium max-w-sm">
-                          Hope your day is filled with joy, success, and smart productivity! Enjoy your premium experience on DocIntel today.
+                          Hope your day is filled with joy, success, and smart productivity! Enjoy your premium experience on MeriPDF today.
                         </p>
                       </div>
                       <span className="text-3xl shrink-0 mt-1 sm:mt-0 animate-bounce">🎁</span>

@@ -122,7 +122,7 @@ export default function AllToolsPage() {
         <div className="absolute top-0 left-0 mt-10 ml-10 w-64 h-64 bg-purple-600 rounded-full blur-3xl opacity-20 pointer-events-none"></div>
         
         <div className="max-w-4xl mx-auto relative z-10">
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 tracking-tight">DocIntel All PDF Tools</h1>
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 tracking-tight">MeriPDF All PDF Tools</h1>
           <p className="text-xl text-slate-300 font-light mb-8 max-w-2xl mx-auto">
             Every tool you need to work with PDFs in one place. <span className="font-semibold text-white">100% Secure, Fast, and Professional.</span>
           </p>

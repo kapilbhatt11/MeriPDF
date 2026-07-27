@@ -29,7 +29,7 @@ export default function BlogListPage() {
       {/* --- Page Header Banner --- */}
       <div className="text-center space-y-4 mb-16">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-black uppercase tracking-wider border border-emerald-100">
-          <BookOpen className="w-3.5 h-3.5" /> DocIntel Knowledge Base
+          <BookOpen className="w-3.5 h-3.5" /> MeriPDF Knowledge Base
         </div>
         <h1 className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight">
           Articles, Guides & <span className="text-emerald-600">Productivity Hacks</span>
@@ -144,7 +144,7 @@ export default function BlogListPage() {
             Looking for a privacy-first workspace?
           </h4>
           <p className="text-indigo-200 text-xs sm:text-sm font-semibold leading-relaxed">
-            DocIntel processes all files structure-locally with automatic file cache removal immediately after downloads. Do not put your corporate secrets at risk.
+            MeriPDF processes all files structure-locally with automatic file cache removal immediately after downloads. Do not put your corporate secrets at risk.
           </p>
         </div>
         <div className="shrink-0 relative z-10 w-full md:w-auto text-center">

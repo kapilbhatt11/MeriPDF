@@ -65,7 +65,7 @@ export default function CompressPDF() {
         }
       );
 
-      let filename = mode === "per-file" ? "DocIntel_Compressed.zip" : "DocIntel_Compressed.pdf";
+      let filename = mode === "per-file" ? "MeriPDF_Compressed.zip" : "MeriPDF_Compressed.pdf";
       const url = URL.createObjectURL(new Blob([res.data]));
       
       setDownloadUrl(url);

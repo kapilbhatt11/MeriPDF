@@ -62,7 +62,7 @@ export default function RootLayout({
 // });
 
 // export const metadata: Metadata = {
-//   title: "DocIntel OCR",
+//   title: "MeriPDF OCR",
 //   description: "OCR Extraction App",
 // };
 
@@ -78,7 +78,7 @@ export default function RootLayout({
 //       >
 //         {/* ✅ Navbar */}
 //         <nav className="bg-blue-600 text-white px-6 py-3 shadow-md flex justify-between items-center">
-//           <h1 className="text-lg font-bold">📄 DocIntel OCR</h1>
+//           <h1 className="text-lg font-bold">📄 MeriPDF OCR</h1>
 //           <div className="space-x-6">
 //             <a href="/" className="hover:underline">
 //               Home

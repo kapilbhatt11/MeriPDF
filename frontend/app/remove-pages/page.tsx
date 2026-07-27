@@ -179,7 +179,7 @@ export default function RemovePagesPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_Removed_Pages.pdf`;
+      link.download = `MeriPDF_Removed_Pages.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

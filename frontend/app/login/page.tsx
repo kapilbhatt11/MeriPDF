@@ -273,7 +273,7 @@ function LoginForm() {
                 disabled={loading}
                 className="w-full bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-extrabold text-xs py-3 rounded-xl auto-scale-[0.98] shadow shadow-orange-500/10 hover:shadow-lg transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <span>{loading ? "Logging you in..." : "Log in to DocIntel"}</span>
+                <span>{loading ? "Logging you in..." : "Log in to MeriPDF"}</span>
                 {!loading && <ArrowRight className="w-3.5 h-3.5" />}
               </button>
             </form>

@@ -208,7 +208,7 @@ export default function SignupPage() {
 
               {!done.emailSent && (
                 <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] p-3.5 rounded-2xl leading-normal">
-                  Note: Email delivery failed. Please adjust `DOCINTEL_SMTP_*` credentials in the server backend local settings, or check your console for registration tickets.
+                  Note: Email delivery failed. Please adjust `MERIPDF_SMTP_*` credentials in the server backend local settings, or check your console for registration tickets.
                 </div>
               )}
 

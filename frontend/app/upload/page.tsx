@@ -48,7 +48,7 @@ export default function OCRUploadPage() {
       });
 
       if (res.status === 401) {
-        alert("Please log in to use OCR features on DocIntel.");
+        alert("Please log in to use OCR features on MeriPDF.");
         return;
       }
       const data = await res.json();
@@ -123,7 +123,7 @@ export default function OCRUploadPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_OCR.txt`;
+      link.download = `MeriPDF_OCR.txt`;
       link.click();
       URL.revokeObjectURL(url);
     }

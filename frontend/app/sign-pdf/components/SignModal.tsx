@@ -35,7 +35,7 @@ export default function SignModal({ isOpen, onClose, onSave }: SignModalProps) {
 
   // Stamp Tab States
   const stampCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [companyName, setCompanyName] = useState<string>("DOCINTEL SOLUTIONS");
+  const [companyName, setCompanyName] = useState<string>("MERIPDF SOLUTIONS");
   const [subText, setSubText] = useState<string>("★ OFFICIAL SEAL ★");
   const [centerText, setCenterText] = useState<string>("APPROVED");
   const [stampType, setStampType] = useState<"round" | "rect">("round");
@@ -47,7 +47,7 @@ export default function SignModal({ isOpen, onClose, onSave }: SignModalProps) {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("docintel_signatures");
+      const saved = localStorage.getItem("meripdf_signatures");
       if (saved) {
         try {
           setSavedItems(JSON.parse(saved));
@@ -75,14 +75,14 @@ export default function SignModal({ isOpen, onClose, onSave }: SignModalProps) {
     const newItem = { id: Date.now().toString(), type, dataUrl };
     const updated = [newItem, ...savedItems].slice(0, 8);
     setSavedItems(updated);
-    localStorage.setItem("docintel_signatures", JSON.stringify(updated));
+    localStorage.setItem("meripdf_signatures", JSON.stringify(updated));
   };
 
   const deleteStoredItem = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const updated = savedItems.filter(item => item.id !== id);
     setSavedItems(updated);
-    localStorage.setItem("docintel_signatures", JSON.stringify(updated));
+    localStorage.setItem("meripdf_signatures", JSON.stringify(updated));
   };
 
   // Draw Pad Mouse/Touch Handler
@@ -511,7 +511,7 @@ export default function SignModal({ isOpen, onClose, onSave }: SignModalProps) {
                        <label className="text-xs font-bold uppercase tracking-wider text-slate-700 block mb-2">Type your signature name</label>
                       <input 
                         type="text" 
-                        placeholder="Enter full name (e.g. DocIntel)..."
+                        placeholder="Enter full name (e.g. MeriPDF)..."
                         maxLength={26}
                         value={typedName}
                         onChange={(e) => setTypedName(e.target.value)}
@@ -550,7 +550,7 @@ export default function SignModal({ isOpen, onClose, onSave }: SignModalProps) {
                         style={{ color: inkColor }}
                         className={`${selectedFont} text-5xl transition-all duration-305`}
                       >
-                        {useInitials ? (typedInitials || "DI") : (typedName || "DocIntel")}
+                        {useInitials ? (typedInitials || "DI") : (typedName || "MeriPDF")}
                       </span>
                     </div>
                   </div>

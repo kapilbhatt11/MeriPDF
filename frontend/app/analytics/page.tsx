@@ -26,7 +26,7 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState<"all" | "high-value">("all");
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("docintel_token") : null;
+    const token = typeof window !== "undefined" ? localStorage.getItem("meripdf_token") : null;
     if (!token) {
       setStats({
         totalOps: 0,
@@ -75,7 +75,7 @@ export default function AnalyticsPage() {
             Analytics & Savings Dashboard
           </h1>
           <p className="text-slate-400 text-sm mt-2 max-w-xl">
-            Track your client-side operations history, view pages processed, and visualize estimated costs saved using DocIntel free utilities.
+            Track your client-side operations history, view pages processed, and visualize estimated costs saved using MeriPDF free utilities.
           </p>
         </div>
       </div>
@@ -267,7 +267,7 @@ export default function AnalyticsPage() {
                 <Sparkles className="w-5 h-5 animate-pulse" /> Upgrade to Unlimited
               </h3>
               <p className="text-white/80 text-xs font-medium mt-3 leading-relaxed">
-                Enjoyed saving with DocIntel? Unlock unlimited single conversions, custom compression sliders, and faster server compiles.
+                Enjoyed saving with MeriPDF? Unlock unlimited single conversions, custom compression sliders, and faster server compiles.
               </p>
               <Link 
                 href="/pricing"

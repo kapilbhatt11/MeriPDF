@@ -95,7 +95,7 @@ export default function PricingPage() {
           key: orderData.key_id,
           amount: orderData.amount,
           currency: orderData.currency,
-          name: "DocIntel Pro",
+          name: "MeriPDF Pro",
           description: yearly ? "Yearly Subscription" : "Monthly Subscription",
           order_id: orderData.order_id,
           handler: async function (response: any) {
@@ -200,7 +200,7 @@ export default function PricingPage() {
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-xs font-black uppercase tracking-widest text-indigo-400">Recommended</p>
-                <h2 className="text-2xl font-black text-white mt-1">DocIntel Pro</h2>
+                <h2 className="text-2xl font-black text-white mt-1">MeriPDF Pro</h2>
               </div>
             </div>
 
@@ -414,10 +414,10 @@ export default function PricingPage() {
             </Link>
           </div>
           <p className="leading-relaxed">
-            <b>1. Disclaimer of Warranties:</b> All document processing services (including but not limited to PDF Repair, OCR, Compression, and Merging) are provided <b>"AS IS"</b> and on an <b>"AS AVAILABLE"</b> basis. DocIntel makes no representations or warranties of any kind, express or implied, regarding the accuracy, completeness, viability, or success of any file restoration or utility execution.
+            <b>1. Disclaimer of Warranties:</b> All document processing services (including but not limited to PDF Repair, OCR, Compression, and Merging) are provided <b>"AS IS"</b> and on an <b>"AS AVAILABLE"</b> basis. MeriPDF makes no representations or warranties of any kind, express or implied, regarding the accuracy, completeness, viability, or success of any file restoration or utility execution.
           </p>
           <p className="leading-relaxed">
-            <b>2. Limitation of Liability:</b> Under no circumstances shall DocIntel or its developers be liable for any direct, indirect, incidental, special, or consequential damages resulting from data loss, corrupted documents, or service failures. The maximum liability under any subscription claim shall be strictly capped at the exact amount paid for the active subscription cycle.
+            <b>2. Limitation of Liability:</b> Under no circumstances shall MeriPDF or its developers be liable for any direct, indirect, incidental, special, or consequential damages resulting from data loss, corrupted documents, or service failures. The maximum liability under any subscription claim shall be strictly capped at the exact amount paid for the active subscription cycle.
           </p>
           <p className="leading-relaxed flex items-center gap-1.5 text-[11px] text-slate-650 font-semibold bg-slate-50 p-2.5 rounded-lg border border-slate-155">
             ⚠️ <b>Processing Advisory:</b> Some damaged files may be irreparable by automated scripts. Please always keep backups of your original documents before uploading them to the platform.

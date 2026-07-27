@@ -245,7 +245,7 @@ export default function OrganizePDFPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_Organized.pdf`;
+      link.download = `MeriPDF_Organized.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

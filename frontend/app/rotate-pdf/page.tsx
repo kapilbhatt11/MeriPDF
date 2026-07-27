@@ -232,7 +232,7 @@ export default function RotatePDFPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_Rotated_Files.zip`;
+      link.download = `MeriPDF_Rotated_Files.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

@@ -438,7 +438,7 @@ export default function MergePDFPage() {
                 <div className="w-full space-y-3">
                   <a
                     href={mergeSuccess.url}
-                    download="DocIntel_merged.pdf"
+                    download="MeriPDF_merged.pdf"
                     onClick={() => setMergeSuccess((prev) => prev ? { ...prev, done: true } : null)}
                     className="w-full inline-flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-bold py-3.5 px-6 rounded-xl shadow-lg hover:shadow-indigo-500/20 hover:from-indigo-500 hover:to-blue-500 active:scale-[0.98] transition-all cursor-pointer text-sm"
                   >

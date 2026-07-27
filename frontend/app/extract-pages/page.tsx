@@ -179,7 +179,7 @@ export default function ExtractPagesPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_Extracted_Pages.pdf`;
+      link.download = `MeriPDF_Extracted_Pages.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

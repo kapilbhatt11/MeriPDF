@@ -153,7 +153,7 @@ export default function PageNumbersPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_Numbered.pdf`;
+      link.download = `MeriPDF_Numbered.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

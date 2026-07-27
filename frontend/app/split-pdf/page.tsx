@@ -250,7 +250,7 @@ export default function SplitPDFPage() {
     const blob = await res.blob()
     const contentType = res.headers.get("content-type")
 
-    let filename="DocIntel_Split_Output"
+    let filename="MeriPDF_Split_Output"
 
     if(contentType?.includes("zip")){
       filename+=".zip"
@@ -320,10 +320,10 @@ export default function SplitPDFPage() {
   //     // const url = window.URL.createObjectURL(blob);
   //     // const a = document.createElement("a");
   //     // a.href = url;
-  //     // a.download = "DocIntel_Split_Output.zip";
+  //     // a.download = "MeriPDF_Split_Output.zip";
   //     const contentType = res.headers.get("content-type");
 
-  //     let filename = "DocIntel_Split_Output";
+  //     let filename = "MeriPDF_Split_Output";
 
   //     if (contentType?.includes("zip")) {
   //       filename += ".zip";

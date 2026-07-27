@@ -13,7 +13,7 @@ export function logPDFOperation(toolName: string, pagesCount: number) {
   if (typeof window === "undefined") return;
   (window as any).__last_logged_at = Date.now();
   try {
-    const listRaw = localStorage.getItem("docintel_analytics_history");
+    const listRaw = localStorage.getItem("meripdf_analytics_history");
     const list: PDFLog[] = listRaw ? JSON.parse(listRaw) : [];
     
     // We estimate page and tool specific savings
@@ -59,7 +59,7 @@ export function logPDFOperation(toolName: string, pagesCount: number) {
       list.pop(); // keep last 50 entries
     }
     
-    localStorage.setItem("docintel_analytics_history", JSON.stringify(list));
+    localStorage.setItem("meripdf_analytics_history", JSON.stringify(list));
     
     // Calculate total savings to display in toast
     const totalSavings = list.reduce((acc, curr) => acc + (curr.savings || 0), 0);
@@ -91,7 +91,7 @@ export function logPDFOperation(toolName: string, pagesCount: number) {
 export function getPDFAnalyticsHistory(): PDFLog[] {
   if (typeof window === "undefined") return [];
   try {
-    const listRaw = localStorage.getItem("docintel_analytics_history");
+    const listRaw = localStorage.getItem("meripdf_analytics_history");
     return listRaw ? JSON.parse(listRaw) : [];
   } catch {
     return [];

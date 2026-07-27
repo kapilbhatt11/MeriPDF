@@ -192,7 +192,7 @@ export default function WatermarkPDF() {
       }
 
       const contentDisposition = res.headers["content-disposition"] as string | undefined;
-      let filename = `DocIntel_Watermarked.pdf`;
+      let filename = `MeriPDF_Watermarked.pdf`;
       if (contentDisposition) {
         const match = /filename="?([^\";]+)"?/.exec(contentDisposition);
         if (match && match[1]) filename = match[1];

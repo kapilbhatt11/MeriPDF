@@ -43,7 +43,7 @@ export default function Navbar() {
         setSavings(0);
         return;
       }
-      const listRaw = localStorage.getItem("docintel_analytics_history");
+      const listRaw = localStorage.getItem("meripdf_analytics_history");
       const list = listRaw ? JSON.parse(listRaw) : [];
       const total = list.reduce((acc: number, curr: any) => acc + (curr.savings || 0), 0);
       setSavings(total);
@@ -276,7 +276,7 @@ export default function Navbar() {
     setUserAvatar(null);
     setIsAdmin(false);
     try {
-      localStorage.removeItem("docintel_analytics_history");
+      localStorage.removeItem("meripdf_analytics_history");
     } catch {}
     router.push("/");
     router.refresh();

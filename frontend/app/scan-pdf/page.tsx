@@ -351,7 +351,7 @@ export default function ScanPDFPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DocIntel_Scanned_Document.pdf`;
+      link.download = `MeriPDF_Scanned_Document.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

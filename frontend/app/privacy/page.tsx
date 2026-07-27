@@ -37,7 +37,7 @@ export default function PrivacyPolicyPage() {
               <HeartHandshake className="w-5 h-5 text-pink-300" /> Public Utility & Cost-Recovery Mission
             </h4>
             <p className="text-xs sm:text-sm text-indigo-50/90 leading-relaxed font-semibold">
-              DocIntel is built as a non-commercial, low-budget public utility to provide individuals and developers with an affordable, high-quality, and ad-free PDF workspace.
+              MeriPDF is built as a non-commercial, low-budget public utility to provide individuals and developers with an affordable, high-quality, and ad-free PDF workspace.
             </p>
             <p className="text-xs text-indigo-100/80 leading-relaxed font-medium">
               We do not run this service to generate corporate profits. Our subscription options (₹149/monthly and ₹1,490/yearly) are calculated strictly to cover monthly infrastructure overhead—such as database hosting, CPU-intensive document processing servers, security certificates, and network bandwidth. By subscribing, you are directly supporting the server bills that keep this public utility alive for everyone.
@@ -98,7 +98,7 @@ export default function PrivacyPolicyPage() {
             <div className="text-xs text-slate-600 font-semibold leading-relaxed space-y-3">
               <p className="text-rose-850 font-bold bg-rose-50 border border-rose-150 p-4 rounded-xl leading-normal">
                 ⚠️ **CRITICAL LEGAL AGREEMENT: PLEASE READ CAREFULLY** <br />
-                By using DocIntel, you explicitly agree that all services, automated PDF tools, custom converters, script outputs, and billing features are provided strictly on an **"AS IS"** and **"AS AVAILABLE"** basis, without any warranties or guarantees of any kind, whether express or implied.
+                By using MeriPDF, you explicitly agree that all services, automated PDF tools, custom converters, script outputs, and billing features are provided strictly on an **"AS IS"** and **"AS AVAILABLE"** basis, without any warranties or guarantees of any kind, whether express or implied.
               </p>
               <p>
                 Because PDF format structures are highly complex, some corrupted, protected, or non-standard documents cannot be processed successfully by automated scripts. 
@@ -106,7 +106,7 @@ export default function PrivacyPolicyPage() {
               <ul className="list-disc list-inside space-y-1.5 pl-2 font-medium text-slate-600">
                 <li>**Zero Fault & Damage Liability:** The application host, owners, and developers shall under no circumstances be liable for any direct, indirect, incidental, punitive, or consequential damages (including but not limited to data loss, corrupted files, security breaches, system downtime, or financial loss).</li>
                 <li>**User Precaution Requirement:** You are solely responsible for retaining offline copies and backups of your original documents before uploading them to our servers.</li>
-                <li>**Indemnification:** You agree to defend, indemnify, and hold harmless DocIntel's administrators and developers from any claims, suits, liabilities, losses, damages, or costs arising out of your usage of the app.</li>
+                <li>**Indemnification:** You agree to defend, indemnify, and hold harmless MeriPDF's administrators and developers from any claims, suits, liabilities, losses, damages, or costs arising out of your usage of the app.</li>
                 <li>**Waiver of Class-Actions & Lawsuits:** You agree that any disputes must be resolved solely through individual binding arbitration, and you waive all rights to file, present, or participate in any lawsuit, class-action suit, or collective legal action against the developers.</li>
                 <li>**Refund and Claim Cap:** The absolute maximum liability for any issue or claim of any nature is strictly capped at the exact subscription fee paid by you during the active billing cycle.</li>
               </ul>
@@ -125,7 +125,7 @@ export default function PrivacyPolicyPage() {
                 <div>
                   <span className="text-sm font-black block text-emerald-990 leading-tight">🔒 GUARANTEED ZERO-RETENTION & NO AI TRAINING</span>
                   <span className="block font-medium text-xs text-slate-705 mt-1">
-                    Unlike commercial giants (such as Adobe or other free online converters) that scan your uploads to train proprietary Artificial Intelligence models, DocIntel maintains complete telemetry isolation. We do not harvest, read, or catalog your PDF contents.
+                    Unlike commercial giants (such as Adobe or other free online converters) that scan your uploads to train proprietary Artificial Intelligence models, MeriPDF maintains complete telemetry isolation. We do not harvest, read, or catalog your PDF contents.
                   </span>
                 </div>
               </div>
@@ -146,7 +146,7 @@ export default function PrivacyPolicyPage() {
             </div>
             <div className="text-xs text-slate-605 text-slate-600 font-semibold leading-relaxed">
               <p>
-                By logging into DocIntel, requesting conversions, or subscribing to our Pro Plans, you express full understanding and acceptance of these Terms. We continuously refine the tools based on user feedback to deliver a better document processing workflow.
+                By logging into MeriPDF, requesting conversions, or subscribing to our Pro Plans, you express full understanding and acceptance of these Terms. We continuously refine the tools based on user feedback to deliver a better document processing workflow.
               </p>
               <p className="mt-3 text-slate-400">
                 If you have questions regarding the hosting servers or require assistance with payment sandboxes, please reach out to us via support channels or check your account settings.
@@ -159,7 +159,7 @@ export default function PrivacyPolicyPage() {
         {/* Clean Footer Link */}
         <div className="text-center pt-8 border-t border-slate-200">
           <p className="text-[10px] text-slate-400 font-semibold">
-            Copyright &copy; 2026 DocIntel Suite. Developed purely to fuel smart document productivity workflows.
+            Copyright &copy; 2026 MeriPDF Suite. Developed purely to fuel smart document productivity workflows.
           </p>
         </div>
 
