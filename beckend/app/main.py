@@ -148,6 +148,13 @@ def root():
 _avatars_dir = Path(__file__).resolve().parent.parent / "avatars"
 _avatars_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/avatars", StaticFiles(directory=str(_avatars_dir)), name="avatars")
-# Serve merged or split PDF files directly
-app.mount("/merge_pdf_outputs", StaticFiles(directory="merge_pdf_outputs"), name="merge_pdf_outputs")
-app.mount("/split_pdf_outputs", StaticFiles(directory="split_pdf_outputs"), name="split_pdf_outputs")
+
+# Serve merged or split PDF files directly (ensuring directories exist first)
+_merge_dir = Path(__file__).resolve().parent.parent / "merge_pdf_outputs"
+_merge_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/merge_pdf_outputs", StaticFiles(directory=str(_merge_dir)), name="merge_pdf_outputs")
+
+_split_dir = Path(__file__).resolve().parent.parent / "split_pdf_outputs"
+_split_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/split_pdf_outputs", StaticFiles(directory=str(_split_dir)), name="split_pdf_outputs")
+
