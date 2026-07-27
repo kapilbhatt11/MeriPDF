@@ -85,7 +85,7 @@ function LoginForm() {
               <Sparkles className="w-4.5 h-4.5 text-white" />
             </div>
             <span className="text-lg font-black tracking-tight text-white">
-              Doc<span className="text-orange-500">Intel</span>
+              Meri<span className="text-orange-500">PDF</span>
             </span>
           </div>
 
