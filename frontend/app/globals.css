@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* // Loader styles */
+
+.cube-loader {
+  width: 80px;
+  height: 80px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  transform: rotate(45deg);
+}
+.cube {
+  width: 30px;
+  height: 30px;
+  background-color: #16a34a;
+  animation: cube-bounce 1.4s infinite ease-in-out;
+}
+.cube1 { animation-delay: 0s; }
+.cube2 { animation-delay: 0.3s; }
+.cube3 { animation-delay: 0.6s; }
+.cube4 { animation-delay: 0.9s; }
+@keyframes cube-bounce {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.5); opacity: 0.6; }
+}
