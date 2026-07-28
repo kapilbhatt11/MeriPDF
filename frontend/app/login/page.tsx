@@ -19,6 +19,7 @@ function LoginForm() {
   const verifiedBanner = searchParams.get("verified") === "1";
   const verifyInvalid = searchParams.get("verify") === "invalid";
   const verifyExpired = searchParams.get("verify") === "expired";
+  const sessionExpired = searchParams.get("session") === "expired";
 
   async function resend() {
     if (!email.trim()) {
@@ -218,6 +219,12 @@ function LoginForm() {
               <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-350 text-amber-300 text-xs p-3.5 rounded-2xl">
                 <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                 <span>Confirmation link expired. Please click below to resend.</span>
+              </div>
+            )}
+            {sessionExpired && (
+              <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs p-3.5 rounded-2xl">
+                <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>Logged out because this account was logged in on another device.</span>
               </div>
             )}
 

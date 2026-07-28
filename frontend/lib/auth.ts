@@ -32,5 +32,14 @@ export async function fetchWithAuth(
   if (auth.Authorization) {
     headers.set("Authorization", auth.Authorization);
   }
-  return fetch(input, { ...init, headers });
+  const response = await fetch(input, { ...init, headers });
+  if (response.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") {
+      if (!window.location.pathname.includes("/login")) {
+        window.location.href = "/login?session=expired";
+      }
+    }
+  }
+  return response;
 }
