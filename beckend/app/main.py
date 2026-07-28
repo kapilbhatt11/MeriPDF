@@ -132,6 +132,7 @@ async def health():
         "status": "ok",
         "smtp_host": config.SMTP_HOST,
         "smtp_port": config.SMTP_PORT,
+        "smtp_user": config.SMTP_USER,
         "smtp_configured": bool(config.SMTP_HOST and config.SMTP_USER),
         "smtp_has_password": bool(config.SMTP_PASSWORD)
     }
