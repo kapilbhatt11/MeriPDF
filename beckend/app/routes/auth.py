@@ -73,37 +73,47 @@ async def _issue_new_verification_token(user_id: int) -> tuple[str, datetime]:
 
 @router.post("/register", response_model=RegisterResponse)
 async def register(body: UserRegister):
-    existing = await database.fetch_one(users.select().where(users.c.email == body.email))
-    if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-    hashed = hash_password(body.password)
-    token = secrets.token_urlsafe(32)
-    expires = datetime.utcnow() + timedelta(hours=VERIFY_HOURS)
-    name = (body.full_name or "").strip() or None
-    await database.fetch_one(
-        users.insert()
-        .values(
-            email=body.email,
-            hashed_password=hashed,
-            full_name=name,
-            mobile_number=body.mobile_number,
-            email_verified=True,
-            verification_token=token,
-            verification_expires_at=expires,
-        )
-        .returning(users.c.id)
-    )
-    url = _verify_url(token)
-    email_sent = False
+    import traceback
     try:
-        email_sent = await asyncio.to_thread(send_verification_email, body.email, url, name)
-    except Exception:
-        logger.exception("Could not send verification email to %s", body.email)
-    return RegisterResponse(
-        message="Account created. Check your inbox and confirm your email before logging in.",
-        email=body.email,
-        email_sent=email_sent,
-    )
+        existing = await database.fetch_one(users.select().where(users.c.email == body.email))
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+        hashed = hash_password(body.password)
+        token = secrets.token_urlsafe(32)
+        expires = datetime.utcnow() + timedelta(hours=VERIFY_HOURS)
+        name = (body.full_name or "").strip() or None
+        await database.fetch_one(
+            users.insert()
+            .values(
+                email=body.email,
+                hashed_password=hashed,
+                full_name=name,
+                mobile_number=body.mobile_number,
+                email_verified=True,
+                verification_token=token,
+                verification_expires_at=expires,
+            )
+            .returning(users.c.id)
+        )
+        url = _verify_url(token)
+        email_sent = False
+        try:
+            email_sent = await asyncio.to_thread(send_verification_email, body.email, url, name)
+        except Exception:
+            logger.exception("Could not send verification email to %s", body.email)
+        return RegisterResponse(
+            message="Account created. Check your inbox and confirm your email before logging in.",
+            email=body.email,
+            email_sent=email_sent,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = traceback.format_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={"error": str(e), "traceback": tb.splitlines()}
+        )
 
 
 @router.get("/verify-email")
