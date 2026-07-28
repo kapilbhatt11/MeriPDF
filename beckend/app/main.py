@@ -80,6 +80,7 @@ async def startup():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_stored_filename VARCHAR(255)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile_number VARCHAR(20)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS current_session_id VARCHAR(128)",
     ):
         await database.execute(text(stmt))
     await database.execute(

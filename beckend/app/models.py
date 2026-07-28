@@ -41,6 +41,7 @@ users = Table(
     Column("avatar_stored_filename", String(255), nullable=True),
     Column("mobile_number", String(20), nullable=True),
     Column("is_admin", Boolean, nullable=False, default=False),
+    Column("current_session_id", String(128), nullable=True),
     Column("created_at", DateTime, default=datetime.utcnow),
 )
 

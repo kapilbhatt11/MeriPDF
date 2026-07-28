@@ -186,7 +186,14 @@ async def login(body: UserLogin):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Please verify your email before logging in. Check your inbox or resend the link.",
         )
-    token = create_access_token(row["id"])
+    import secrets
+    session_id = secrets.token_hex(16)
+    await database.execute(
+        users.update()
+        .where(users.c.id == row["id"])
+        .values(current_session_id=session_id)
+    )
+    token = create_access_token(row["id"], session_id=session_id)
     return TokenResponse(access_token=token)
 
 
