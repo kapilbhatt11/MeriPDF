@@ -126,8 +126,17 @@ async def shutdown():
 # ---------------- Health Check ----------------
 @app.get("/health")
 async def health():
-    """Check if server is running."""
-    return {"status": "ok"}
+    """Check if server and database are running."""
+    try:
+        await database.fetch_one("SELECT 1")
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "detail": str(e),
+            "traceback": traceback.format_exc().splitlines()
+        }
 
 
 # ---------------- Routers ----------------
