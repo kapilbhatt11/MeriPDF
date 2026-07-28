@@ -19,6 +19,21 @@ from app.routes.pdf_tools import router_compress
 app = FastAPI(title="MeriPDF - OCR + PDF Tools Service")
 main = app
 
+import traceback
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def debug_exception_handler(request, exc):
+    tb = traceback.format_exc()
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": str(exc),
+            "traceback": tb.splitlines()
+        }
+    )
+
+
 # CORS must be outermost so OPTIONS preflight is answered before other middleware.
 # (Otherwise browser shows "Network error" and logs show OPTIONS … 400.)
 app.add_middleware(AnonymousPdfLimitMiddleware)
