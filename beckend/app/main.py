@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, text
+from app import config
 from app.config import FRONTEND_URL
 from app.db import database, metadata, DATABASE_URL
 from app.middleware.pdf_limit_middleware import AnonymousPdfLimitMiddleware
@@ -126,8 +127,14 @@ async def shutdown():
 # ---------------- Health Check ----------------
 @app.get("/health")
 async def health():
-    """Check if server is running."""
-    return {"status": "ok"}
+    """Check if server is running and print safe SMTP configs."""
+    return {
+        "status": "ok",
+        "smtp_host": config.SMTP_HOST,
+        "smtp_port": config.SMTP_PORT,
+        "smtp_configured": bool(config.SMTP_HOST and config.SMTP_USER),
+        "smtp_has_password": bool(config.SMTP_PASSWORD)
+    }
 
 
 # ---------------- Routers ----------------
