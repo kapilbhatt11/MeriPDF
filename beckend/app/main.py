@@ -126,10 +126,17 @@ async def shutdown():
 # ---------------- Health Check ----------------
 @app.get("/health")
 async def health():
-    """Check if server and database are running."""
+    """Check if server and database are running and verify schema."""
     try:
-        await database.fetch_one("SELECT 1")
-        return {"status": "ok", "database": "connected"}
+        columns = await database.fetch_all(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'users'"
+        )
+        cols = {row["column_name"]: row["data_type"] for row in columns}
+        return {
+            "status": "ok",
+            "database": "connected",
+            "users_columns": cols
+        }
     except Exception as e:
         import traceback
         return {
