@@ -17,6 +17,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "MeriPDF - Free OCR & PDF Tools",
   description: "Your ultimate online hub for PDF splitting, merging, conversion, and dynamic multi-lingual OCR extraction.",
+  verification: {
+    google: "1UQisFkmg1qF59DVlHiP7ZojsrATYU4ogUsRCAybiZc",
+  },
 };
 
 
