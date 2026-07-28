@@ -89,7 +89,8 @@ async def register(body: UserRegister):
                 hashed_password=hashed,
                 full_name=name,
                 mobile_number=body.mobile_number,
-                email_verified=True,
+                email_verified=False,
+                is_admin=False,
                 verification_token=token,
                 verification_expires_at=expires,
             )
