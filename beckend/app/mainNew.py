@@ -138,7 +138,7 @@ async def process_and_extract(
 
     try:
         if file_path.suffix.lower() == ".pdf":
-            pages = convert_from_path(str(file_path), dpi=300, poppler_path=POPPLER_PATH)
+            pages = convert_from_path(str(file_path), dpi=150, poppler_path=POPPLER_PATH)
             for i, page in enumerate(pages):
                 proc = preprocess_image_for_ocr(page)
                 raw = pytesseract.image_to_string(proc, lang=lang, config=base_config)

@@ -53,7 +53,7 @@ async def process_and_extract(file_path: Path, text_path: Path, lang: str, store
     try:
         if file_path.suffix.lower() == ".pdf":
             pages = await asyncio.to_thread(
-                convert_from_path, str(file_path), dpi=300, poppler_path=POPPLER_PATH
+                convert_from_path, str(file_path), dpi=150, poppler_path=POPPLER_PATH
             )
             for i, page in enumerate(pages):
                 proc = await asyncio.to_thread(preprocess_image, page)

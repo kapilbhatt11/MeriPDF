@@ -94,7 +94,7 @@ async def pdf_to_jpg(
             text_content = ""
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                pix = page.get_pixmap(dpi=300)
+                pix = page.get_pixmap(dpi=150)
                 img = Image.open(io.BytesIO(pix.tobytes("jpeg")))
                 text = pytesseract.image_to_string(img, lang="hin+eng")
                 text_content += f"--- Page {page_num + 1} ---\n\n"
