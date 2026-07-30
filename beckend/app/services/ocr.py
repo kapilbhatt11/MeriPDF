@@ -47,6 +47,7 @@ import asyncio
 
 async def process_and_extract(file_path: Path, text_path: Path, lang: str, stored_name: str):
     """🔍 Run OCR and save results without blocking the event loop."""
+    lang = lang.replace(" ", "+").replace(",", "+")
     text = ""
     config = "--oem 3 --psm 6"
 

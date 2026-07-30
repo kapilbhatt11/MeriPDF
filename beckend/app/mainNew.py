@@ -129,6 +129,7 @@ async def process_and_extract(
     use_whitelist: when True, restrict characters (useful for short text)
     apply_spellcorr: if True, apply lightweight spell correction
     """
+    lang = lang.replace(" ", "+").replace(",", "+")
     text = ""
     # build base tesseract config
     base_config = f"--oem 3 --psm {psm_mode}"
