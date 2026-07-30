@@ -1,0 +1,13 @@
+﻿396414a style: fix logo branding DocIntel to MeriPDF in signup and login pages
+d58c2da Merge remote-tracking branch 'origin/vercel/react-server-components-cve-vu-voljdm'
+fd9783e style: rebrand backend to MeriPDF with config compatibility
+8e36cbe style: rebrand project text from DocIntel to MeriPDF
+17e88fa Fix React Server Components CVE vulnerabilities
+27eb4ee fix: ignore eslint and typescript errors during Vercel builds
+a2d14e9 fix: Webpack alias for pdfjs-dist canvas in next.config.ts
+51fee93 fix: add psycopg2-binary to requirements.txt
+584d2fd fix: ensure static output directories exist before mounting
+1a4fbf6 fix: add aiofiles and pdf2image to requirements.txt
+3565191 fix: add missing python libraries in requirements.txt
+7437c53 fix: convert frontend from submodule to normal directory
+e0c28ad initial commit

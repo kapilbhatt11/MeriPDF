@@ -1,4 +1,5 @@
 # backend/app/services/ocr.py
+import os
 from pathlib import Path
 import pytesseract
 from pdf2image import convert_from_path
@@ -7,7 +8,8 @@ import re
 
 from app.services.db_ops import update_extracted_text
 
-POPPLER_PATH = r"C:\poppler-25.07.0\Library\bin"
+_local_poppler = r"C:\poppler-25.07.0\Library\bin"
+POPPLER_PATH = _local_poppler if os.path.exists(_local_poppler) else None
 DEFAULT_LANG = "eng"
 
 

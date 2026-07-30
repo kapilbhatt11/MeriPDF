@@ -470,7 +470,7 @@ export default function Navbar() {
 
       {/* Mobile Drawer menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white p-6 flex flex-col gap-6 animate-in slide-in-from-top duration-250 select-none">
+        <div className="md:hidden fixed left-0 right-0 top-16 bottom-0 bg-white p-6 flex flex-col gap-6 animate-in slide-in-from-top duration-250 overflow-y-auto select-none border-t border-slate-200">
           <div className="flex flex-col gap-4">
             <span className="text-[9px] text-slate-405 text-slate-400 uppercase tracking-widest font-black">Main Navigator</span>
             <Link href="/" className="text-sm font-bold text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all">Home</Link>

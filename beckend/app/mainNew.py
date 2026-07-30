@@ -5,6 +5,7 @@ from pathlib import Path
 import aiofiles
 import pytesseract
 import uuid
+import os
 from pdf2image import convert_from_path
 from PIL import Image, ImageFilter, ImageOps
 from spellchecker import SpellChecker
@@ -40,7 +41,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 TEXT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Set to your poppler bin path (Windows). If poppler in PATH, you can set to None.
-POPPLER_PATH = r"C:\poppler-25.07.0\Library\bin"
+_local_poppler = r"C:\poppler-25.07.0\Library\bin"
+POPPLER_PATH = _local_poppler if os.path.exists(_local_poppler) else None
 
 # Default OCR language
 DEFAULT_LANG = "eng"
