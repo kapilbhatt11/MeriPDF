@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import SortableItem from "./sortable-item";
-import { X, RotateCw, Plus, GripVertical, ArrowDownAZ, ArrowUpAZ, HelpCircle, FileText, Download, CheckCircle, Layers } from "lucide-react";
+import { X, RotateCw, Plus, GripVertical, ArrowDownAZ, ArrowUpAZ, HelpCircle, FileText, Download, CheckCircle, Layers, Undo, Redo } from "lucide-react";
 import { api } from "@/lib/api";
 import { optionalAuthHeaders } from "@/lib/auth";
 import { logPDFOperation } from "@/lib/analytics";
@@ -30,6 +30,37 @@ export default function MergePDFPage() {
   const [previews, setPreviews] = useState<{ [key: string]: string }>({});
   const [rotations, setRotations] = useState<{ [key: string]: number }>({});
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+  // History Undo/Redo stack states
+  interface MergeHistoryState {
+    files: FileWithId[];
+    rotations: { [key: string]: number };
+  }
+  const [history, setHistory] = useState<MergeHistoryState[]>([]);
+  const [redoStack, setRedoStack] = useState<MergeHistoryState[]>([]);
+
+  const pushToHistory = (customFiles = files, customRotations = rotations) => {
+    setHistory((prev) => [...prev, { files: [...customFiles], rotations: { ...customRotations } }]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    setHistory((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, { files: [...files], rotations: { ...rotations } }]);
+    setFiles(previous.files);
+    setRotations(previous.rotations);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setHistory((prev) => [...prev, { files: [...files], rotations: { ...rotations } }]);
+    setFiles(next.files);
+    setRotations(next.rotations);
+  };
   const [mergeSuccess, setMergeSuccess] = useState<{ url: string; done: boolean } | null>(null);
   const [previewUid, setPreviewUid] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -51,6 +82,7 @@ export default function MergePDFPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files ? Array.from(e.target.files) : [];
     if (selected.length > 0) {
+      pushToHistory();
       const withIds = selected.map((f) =>
         Object.assign(f, { uid: f.name + "-" + Date.now() + "-" + Math.random() })
       );
@@ -65,6 +97,7 @@ export default function MergePDFPage() {
 
   // ❌ Delete
   const handleDelete = (uid: string) => {
+    pushToHistory();
     setFiles((prev) => prev.filter((f) => f.uid !== uid));
     setPreviews((prev) => {
       const copy = { ...prev };
@@ -80,6 +113,7 @@ export default function MergePDFPage() {
 
   // 🔄 Rotate
   const handleRotate = (uid: string) => {
+    pushToHistory();
     setRotations((prev) => ({
       ...prev,
       [uid]: ((prev[uid] || 0) + 90) % 360,
@@ -93,6 +127,7 @@ export default function MergePDFPage() {
     if (active.id !== over.id) {
       const oldIndex = files.findIndex((f) => f.uid === active.id);
       const newIndex = files.findIndex((f) => f.uid === over.id);
+      pushToHistory();
       setFiles((items) => arrayMove(items, oldIndex, newIndex));
     }
   };
@@ -100,6 +135,7 @@ export default function MergePDFPage() {
   // 🔃 Sort Toggle
   const toggleSort = () => {
   const newOrder = sortOrder === "asc" ? "desc" : "asc";
+  pushToHistory();
   setSortOrder(newOrder);
 
   setFiles((prev) =>
@@ -185,6 +221,30 @@ export default function MergePDFPage() {
           </div>
 
           <div className="flex gap-3">
+            {/* Undo / Redo controls */}
+            {files.length > 0 && (
+              <div className="flex items-center gap-1 bg-white/10 border border-white/20 rounded-xl p-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={history.length === 0}
+                  className="bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 text-white p-2 rounded-lg transition flex items-center justify-center cursor-pointer disabled:cursor-not-allowed border border-transparent"
+                  title="Undo Action"
+                >
+                  <Undo size={16} className="text-white" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 text-white p-2 rounded-lg transition flex items-center justify-center cursor-pointer disabled:cursor-not-allowed border border-transparent"
+                  title="Redo Action"
+                >
+                  <Redo size={16} className="text-white" />
+                </button>
+              </div>
+            )}
+
             {/* Help Button */}
             <button
               onClick={() => setShowHelp(true)}

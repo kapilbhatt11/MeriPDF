@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { UploadCloud, FileType, LayoutTemplate, Download, X, RefreshCw, RotateCw, Trash2, Plus, HelpCircle, FileText, ArrowLeft, ArrowRight } from "lucide-react";
+import { UploadCloud, FileType, LayoutTemplate, Download, X, RefreshCw, RotateCw, Trash2, Plus, HelpCircle, FileText, ArrowLeft, ArrowRight, Undo, Redo } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { api } from "@/lib/api";
 import { fetchWithAuth } from "@/lib/auth";
@@ -30,6 +30,38 @@ export default function OrganizePDFPage() {
   const [pages, setPages] = useState<PageData[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  // Undo/Redo history states
+  interface OrganizeHistoryState {
+    pages: PageData[];
+    files: File[];
+  }
+  const [history, setHistory] = useState<OrganizeHistoryState[]>([]);
+  const [redoStack, setRedoStack] = useState<OrganizeHistoryState[]>([]);
+
+  const pushToHistory = (customPages = pages, customFiles = files) => {
+    const clonedPages = customPages.map(p => ({ ...p }));
+    setHistory((prev) => [...prev, { pages: clonedPages, files: [...customFiles] }]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    setHistory((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, { pages: pages.map(p => ({ ...p })), files: [...files] }]);
+    setPages(previous.pages);
+    setFiles(previous.files);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setHistory((prev) => [...prev, { pages: pages.map(p => ({ ...p })), files: [...files] }]);
+    setPages(next.pages);
+    setFiles(next.files);
+  };
 
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
@@ -120,6 +152,7 @@ export default function OrganizePDFPage() {
 
   const processUploadedPdfs = async (uploadedFiles: FileList | File[]) => {
     const newFiles = Array.from(uploadedFiles);
+    pushToHistory(pages, files);
     setFiles(prev => [...prev, ...newFiles]);
     setRendering(true);
 
@@ -166,6 +199,7 @@ export default function OrganizePDFPage() {
 
     if (fromIndex === null || toIndex === null) return;
     
+    pushToHistory();
     setPages(prev => {
         const _pages = [...prev];
         const draggedElement = _pages[fromIndex];
@@ -180,6 +214,7 @@ export default function OrganizePDFPage() {
   };
 
   const addBlankPage = (index: number) => {
+    pushToHistory();
     setPages(prev => {
       const _pages = [...prev];
       _pages.splice(index + 1, 0, {
@@ -196,6 +231,7 @@ export default function OrganizePDFPage() {
   };
 
   const rotatePage = (index: number) => {
+    pushToHistory();
     setPages(prev => {
       const _pages = [...prev];
       _pages[index] = { ..._pages[index], rotation: (_pages[index].rotation + 90) % 360 };
@@ -204,6 +240,7 @@ export default function OrganizePDFPage() {
   };
 
   const deletePage = (index: number) => {
+    pushToHistory();
     setPages(prev => {
       const _pages = [...prev];
       _pages.splice(index, 1);
@@ -214,6 +251,7 @@ export default function OrganizePDFPage() {
   const movePage = (fromIndex: number, direction: "left" | "right") => {
     const toIndex = direction === "left" ? fromIndex - 1 : fromIndex + 1;
     if (toIndex < 0 || toIndex >= pages.length) return;
+    pushToHistory();
     setPages((prev) => {
       const _pages = [...prev];
       const draggedElement = _pages[fromIndex];
@@ -301,6 +339,30 @@ export default function OrganizePDFPage() {
           </h1>
           
           <div className="flex items-center gap-4 flex-wrap md:flex-nowrap">
+            {/* Undo / Redo controls */}
+            {pages.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-205 rounded-xl p-1 shadow-sm">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={history.length === 0}
+                  className="bg-white hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white text-slate-700 p-2 rounded-lg border border-slate-200/60 shadow-sm transition flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+                  title="Undo Action"
+                >
+                  <Undo size={16} className="text-indigo-600" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="bg-white hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white text-slate-700 p-2 rounded-lg border border-slate-200/60 shadow-sm transition flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+                  title="Redo Action"
+                >
+                  <Redo size={16} className="text-indigo-600" />
+                </button>
+              </div>
+            )}
+
             <div className="hidden lg:block bg-slate-50 border border-slate-200 text-slate-700 py-2.5 px-4 rounded-xl text-xs font-semibold shadow-inner">
               Reorder mode: <strong className="text-slate-900">Drag thumbnails, insert blank sheets & rotate pages</strong> visually.
             </div>
@@ -634,10 +696,10 @@ export default function OrganizePDFPage() {
                     />
                   </label>
                   <button 
-                    onClick={() => { setFiles([]); setPages([]); }}
+                    onClick={() => { pushToHistory(); setFiles([]); setPages([]); }}
                     className="bg-slate-50 hover:bg-rose-50 hover:text-rose-700 border border-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs cursor-pointer"
                   >
-                    <Trash2 size={14} className="text-slate-550 text-slate-550 text-slate-500 hover:text-rose-705 key hover:text-rose-700" /> Clear workspace
+                    <Trash2 size={14} className="text-slate-500 hover:text-rose-700" /> Clear workspace
                   </button>
                 </div>
 
