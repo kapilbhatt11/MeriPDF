@@ -27,6 +27,10 @@ async def upload_document(
     file: UploadFile = File(...),
     lang: str = Query(DEFAULT_LANG),
 ):
+    # Normalize language string (e.g., "eng hin" -> "eng+hin", "eng,hin" -> "eng+hin")
+    if lang:
+        lang = lang.replace(" ", "+").replace(",", "+")
+
     original_name = file.filename
     ext = Path(file.filename).suffix or ".bin"
     uid = uuid.uuid4().hex

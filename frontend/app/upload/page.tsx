@@ -42,7 +42,7 @@ export default function OCRUploadPage() {
     setCurrentPage(0);
 
     try {
-      const res = await fetchWithAuth(api(`/upload?lang=${lang}`), {
+      const res = await fetchWithAuth(api(`/upload?lang=${encodeURIComponent(lang)}`), {
         method: "POST",
         body: formData,
       });
