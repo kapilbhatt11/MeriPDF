@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { Scissors, HelpCircle, X, FileText, CheckCircle2, Settings, Sparkles, Plus, Trash2, Layers, Download } from "lucide-react";
@@ -17,6 +17,60 @@ export default function SplitPDFPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [splitLoading, setSplitLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  // Mobile navigation swipe states
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (touchStartX.current === null || touchStartY.current === null) return;
+      const diffX = e.touches[0].clientX - touchStartX.current;
+      const diffY = e.touches[0].clientY - touchStartY.current;
+
+      // Check if horizontal swipe is dominant
+      if (Math.abs(diffX) > Math.abs(diffY)) {
+        if (!isDrawerOpen) {
+          // Swipe right from left edge (clientX < 60) to open drawer
+          if (diffX > 50 && touchStartX.current < 60) {
+            setIsDrawerOpen(true);
+            touchStartX.current = null;
+            touchStartY.current = null;
+          }
+        } else {
+          // Swipe left to close drawer
+          if (diffX < -50) {
+            setIsDrawerOpen(false);
+            touchStartX.current = null;
+            touchStartY.current = null;
+          }
+        }
+      }
+    };
+
+    const handleTouchEnd = () => {
+      touchStartX.current = null;
+      touchStartY.current = null;
+    };
+
+    window.addEventListener("touchstart", handleTouchStart);
+    window.addEventListener("touchmove", handleTouchMove);
+    window.addEventListener("touchend", handleTouchEnd);
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isDrawerOpen]);
 
   const [mode, setMode] = useState<"pages" | "pair">("pages");
   const [subMode, setSubMode] = useState<"all" | "manual">("all");
@@ -603,10 +657,31 @@ export default function SplitPDFPage() {
           </div>
 
           {/* Settings Sidebar */}
-          <div className="w-full lg:w-80 bg-white border border-slate-200 rounded-3xl p-6 shadow-md sticky top-6">
-            <h2 className="text-xl font-black text-slate-900 flex items-center gap-2 border-b border-slate-200 pb-4 mb-4">
-              <Settings className="w-5 h-5 text-indigo-600 animate-spin" style={{ animationDuration: '6s' }} /> Split Controls
-            </h2>
+          {/* Mobile Overlay backdrop */}
+          {isDrawerOpen && (
+            <div 
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden animate-in fade-in duration-300"
+              onClick={() => setIsDrawerOpen(false)}
+            />
+          )}
+
+          <div className={`
+            fixed top-0 left-0 h-full w-[290px] bg-white border-r border-slate-205 z-50 p-6 shadow-2xl transition-transform duration-300 ease-in-out overflow-y-auto
+            lg:relative lg:top-auto lg:left-auto lg:h-auto lg:w-80 lg:border lg:rounded-3xl lg:shadow-md lg:translate-x-0 lg:z-auto
+            ${isDrawerOpen ? "translate-x-0" : "-translate-x-full"}
+          `}>
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+              <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-505 text-indigo-600 animate-spin" style={{ animationDuration: '6s' }} /> Split Controls
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className="lg:hidden p-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-805 hover:text-slate-800 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             {/* Mode selection tabs */}
             <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 mb-6">
@@ -817,6 +892,17 @@ export default function SplitPDFPage() {
               <Scissors className="w-4 h-4" /> Split PDF Document
             </button>
           </div>
+
+          {/* Mobile Drawer FAB trigger */}
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen(true)}
+            className="fixed bottom-6 left-6 z-30 lg:hidden bg-indigo-600 hover:bg-indigo-705 key:bg-indigo-700 active:scale-95 text-white font-black p-4 rounded-full shadow-2xl flex items-center justify-center gap-2 animate-bounce border border-indigo-500"
+            title="Open Split Controls"
+          >
+            <Settings className="w-6 h-6 animate-spin" style={{ animationDuration: '6s' }} />
+            <span className="text-xs uppercase tracking-wider pr-1">Split Settings</span>
+          </button>
         </div>
       )}
 
