@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { UploadCloud, FileType, Download, X, CopyMinus, RefreshCw, CheckCircle2, HelpCircle, FileText } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { api } from "@/lib/api";
@@ -26,6 +26,60 @@ export default function ExtractPagesPage() {
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [lastClicked, setLastClicked] = useState<number | null>(null);
   const [totalNumPages, setTotalNumPages] = useState(0);
+
+  // Mobile navigation swipe states
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (touchStartX.current === null || touchStartY.current === null) return;
+      const diffX = e.touches[0].clientX - touchStartX.current;
+      const diffY = e.touches[0].clientY - touchStartY.current;
+
+      // Check if horizontal swipe is dominant
+      if (Math.abs(diffX) > Math.abs(diffY)) {
+        if (!isDrawerOpen) {
+          // Swipe right from left edge (clientX < 60) to open drawer
+          if (diffX > 50 && touchStartX.current < 60) {
+            setIsDrawerOpen(true);
+            touchStartX.current = null;
+            touchStartY.current = null;
+          }
+        } else {
+          // Swipe left to close drawer
+          if (diffX < -50) {
+            setIsDrawerOpen(false);
+            touchStartX.current = null;
+            touchStartY.current = null;
+          }
+        }
+      }
+    };
+
+    const handleTouchEnd = () => {
+      touchStartX.current = null;
+      touchStartY.current = null;
+    };
+
+    window.addEventListener("touchstart", handleTouchStart);
+    window.addEventListener("touchmove", handleTouchMove);
+    window.addEventListener("touchend", handleTouchEnd);
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isDrawerOpen]);
 
   // Parse string like "1, 3-5" into a Set of numbers
   const parseRanges = (str: string): Set<number> => {
@@ -411,10 +465,31 @@ export default function ExtractPagesPage() {
             </div>
 
             {/* Sidebar Controls */}
-            <div className="w-full lg:w-80 bg-white border border-slate-205 border-slate-200 rounded-3xl p-6 shadow-md sticky top-6">
-              <h2 className="text-xl font-black text-slate-900 flex items-center gap-2 border-b border-slate-200 pb-4 mb-4">
-                <CopyMinus className="w-5 h-5 text-emerald-600" /> Page Controls
-              </h2>
+            {/* Mobile Overlay backdrop */}
+            {isDrawerOpen && (
+              <div 
+                className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden animate-in fade-in duration-300"
+                onClick={() => setIsDrawerOpen(false)}
+              />
+            )}
+
+            <div className={`
+              fixed top-0 left-0 h-full w-[290px] bg-white border-r border-slate-205 z-50 p-6 shadow-2xl transition-transform duration-300 ease-in-out overflow-y-auto
+              lg:relative lg:top-auto lg:left-auto lg:h-auto lg:w-80 lg:border lg:rounded-3xl lg:shadow-md lg:translate-x-0 lg:z-auto
+              ${isDrawerOpen ? "translate-x-0" : "-translate-x-full"}
+            `}>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+                <h2 className="text-xl font-black text-slate-905 text-slate-900 flex items-center gap-2">
+                  <CopyMinus className="w-5 h-5 text-emerald-600 animate-pulse" /> Page Controls
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="lg:hidden p-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-slate-850 hover:text-slate-800 transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
               <div className="space-y-6">
                 <div className="bg-slate-50 p-4 border border-slate-150 rounded-2xl shadow-inner">
@@ -494,6 +569,17 @@ export default function ExtractPagesPage() {
                 </button>
               </div>
             </div>
+
+            {/* Mobile Drawer FAB trigger */}
+            <button
+              type="button"
+              onClick={() => setIsDrawerOpen(true)}
+              className="fixed bottom-6 left-6 z-30 lg:hidden bg-emerald-650 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black p-4 rounded-full shadow-2xl flex items-center justify-center gap-2 animate-bounce border border-emerald-500"
+              title="Open Page Controls"
+            >
+              <CopyMinus className="w-6 h-6 animate-pulse" />
+              <span className="text-xs uppercase tracking-wider pr-1">Page Controls</span>
+            </button>
           </div>
         )}
       </div>
