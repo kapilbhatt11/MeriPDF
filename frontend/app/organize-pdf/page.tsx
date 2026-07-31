@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { UploadCloud, FileType, LayoutTemplate, Download, X, RefreshCw, RotateCw, Trash2, Plus, HelpCircle, FileText } from "lucide-react";
+import { UploadCloud, FileType, LayoutTemplate, Download, X, RefreshCw, RotateCw, Trash2, Plus, HelpCircle, FileText, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { api } from "@/lib/api";
 import { fetchWithAuth } from "@/lib/auth";
@@ -207,6 +207,18 @@ export default function OrganizePDFPage() {
     setPages(prev => {
       const _pages = [...prev];
       _pages.splice(index, 1);
+      return _pages;
+    });
+  };
+
+  const movePage = (fromIndex: number, direction: "left" | "right") => {
+    const toIndex = direction === "left" ? fromIndex - 1 : fromIndex + 1;
+    if (toIndex < 0 || toIndex >= pages.length) return;
+    setPages((prev) => {
+      const _pages = [...prev];
+      const draggedElement = _pages[fromIndex];
+      _pages.splice(fromIndex, 1);
+      _pages.splice(toIndex, 0, draggedElement);
       return _pages;
     });
   };
@@ -505,6 +517,56 @@ export default function OrganizePDFPage() {
                         }`}>
                           {page.type === "blank" ? "Blank Sheet" : `Page ${page.originalIndex + 1}`}
                         </span>
+                      </div>
+
+                      {/* Mobile action panel */}
+                      <div className="mt-2.5 flex items-center justify-between gap-1 w-full lg:hidden border-t border-slate-100 pt-2">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            movePage(idx, "left");
+                          }}
+                          className="p-1 text-slate-500 hover:text-indigo-650 hover:bg-slate-50 rounded-lg transition disabled:opacity-30 disabled:pointer-events-none"
+                          title="Move Left"
+                        >
+                          <ArrowLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            rotatePage(idx);
+                          }}
+                          className="p-1 text-slate-500 hover:text-orange-500 hover:bg-slate-50 rounded-lg transition"
+                          title="Rotate"
+                        >
+                          <RotateCw size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePage(idx);
+                          }}
+                          className="p-1 text-slate-500 hover:text-rose-600 hover:bg-slate-50 rounded-lg transition"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === pages.length - 1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            movePage(idx, "right");
+                          }}
+                          className="p-1 text-slate-500 hover:text-indigo-650 hover:bg-slate-50 rounded-lg transition disabled:opacity-30 disabled:pointer-events-none"
+                          title="Move Right"
+                        >
+                          <ArrowRight size={14} />
+                        </button>
                       </div>
                     </div>
 
