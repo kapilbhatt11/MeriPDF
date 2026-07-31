@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import {
   DndContext,
@@ -61,6 +61,35 @@ export default function MergePDFPage() {
     setFiles(next.files);
     setRotations(next.rotations);
   };
+
+  // Keyboard Shortcuts for Undo/Redo (Desktop)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [history, redoStack, files, rotations]);
   const [mergeSuccess, setMergeSuccess] = useState<{ url: string; done: boolean } | null>(null);
   const [previewUid, setPreviewUid] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
