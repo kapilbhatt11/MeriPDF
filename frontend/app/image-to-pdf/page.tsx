@@ -675,7 +675,7 @@ export default function ImageToPDF() {
               <p className="text-xs text-indigo-500 font-bold mb-3">
                 💡 Drag cards to rearrange order, or use arrows (◀ / ▶) to sort on mobile.
               </p>
-              <div className="flex md:grid md:grid-cols-3 gap-3 overflow-x-auto md:overflow-visible pb-2 custom-scrollbar">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {files.map((item, idx) => {
                   const renderable = isRenderable(item.file.name);
                   return (
@@ -695,7 +695,7 @@ export default function ImageToPDF() {
                         setDraggedIndex(null);
                         setDownloadUrl(null);
                       }}
-                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition group shadow-sm select-none hover:border-indigo-400 hover:shadow-md flex-shrink-0 w-[140px] md:w-auto ${
+                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition group shadow-sm select-none hover:border-indigo-400 hover:shadow-md ${
                         draggedIndex === idx ? "opacity-30" : ""
                       }`}
                     >
@@ -716,17 +716,6 @@ export default function ImageToPDF() {
                         <span className="absolute top-2 left-2 bg-indigo-600/90 text-white text-[9px] font-black w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm">
                           {idx + 1}
                         </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeFile(idx);
-                          }}
-                          className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-full shadow transition hover:scale-110 active:scale-90 z-20 cursor-pointer"
-                          title="Remove Image"
-                        >
-                          <X size={10} className="w-2.5 h-2.5" />
-                        </button>
                       </div>
 
                       {/* Info & action buttons */}
@@ -772,6 +761,14 @@ export default function ImageToPDF() {
                                 🎨 Edit
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => removeFile(idx)}
+                              className="p-1 bg-white border border-slate-205 text-red-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title="Remove"
+                            >
+                              <X size={12} />
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -879,10 +876,10 @@ export default function ImageToPDF() {
             </div>
 
             {/* Scrollable contents zone for mobile/desktop layouts */}
-            <div className="p-5 md:p-6 flex flex-col md:flex-row gap-6 overflow-y-auto flex-grow custom-scrollbar">
+            <div className="p-5 md:p-6 flex flex-col md:flex-row gap-6 overflow-hidden flex-grow">
 
               {/* Left side: Canvas Editor workspace */}
-              <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-4 min-h-[300px] md:min-h-[460px] relative overflow-hidden select-none">
+              <div className="flex-shrink-0 md:flex-grow flex flex-col items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-2.5 h-[30vh] min-h-[200px] md:h-auto md:min-h-[460px] relative overflow-hidden select-none">
                 {!imageObject ? (
                   <div className="flex flex-col items-center gap-2 text-indigo-400">
                     <Loader2 className="animate-spin w-8 h-8" />
@@ -899,7 +896,7 @@ export default function ImageToPDF() {
                       onTouchStart={handleCanvasStart}
                       onTouchMove={handleCanvasMove}
                       onTouchEnd={handleCanvasEnd}
-                      className={`max-w-full max-h-[50vh] border border-slate-800 rounded shadow-inner ${
+                      className={`max-w-full max-h-[28vh] md:max-h-[50vh] border border-slate-800 rounded shadow-inner ${
                         cropMode ? "cursor-crosshair" : "cursor-default"
                       }`}
                     />
@@ -913,7 +910,7 @@ export default function ImageToPDF() {
               </div>
 
               {/* Right side: Editor controls */}
-              <div className="w-full md:w-80 flex flex-col justify-between gap-6 border-t md:border-t-0 md:border-l border-slate-800 pt-6 md:pt-0 md:pl-6 text-slate-200">
+              <div className="w-full md:w-80 flex flex-col justify-between gap-6 border-t md:border-t-0 md:border-l border-slate-800 pt-4 md:pt-0 md:pl-6 text-slate-202 overflow-y-auto flex-grow custom-scrollbar h-[45vh] md:h-auto pb-4">
                 <div className="space-y-6"><div className="space-y-3.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block border-b border-slate-800 pb-1.5">
                     Transform Rules
