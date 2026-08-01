@@ -675,7 +675,7 @@ export default function ImageToPDF() {
               <p className="text-xs text-indigo-500 font-bold mb-3">
                 💡 Drag cards to rearrange order, or use arrows (◀ / ▶) to sort on mobile.
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="flex md:grid md:grid-cols-3 gap-3 overflow-x-auto md:overflow-visible pb-2 custom-scrollbar">
                 {files.map((item, idx) => {
                   const renderable = isRenderable(item.file.name);
                   return (
@@ -695,7 +695,7 @@ export default function ImageToPDF() {
                         setDraggedIndex(null);
                         setDownloadUrl(null);
                       }}
-                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition group shadow-sm select-none hover:border-indigo-400 hover:shadow-md ${
+                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition group shadow-sm select-none hover:border-indigo-400 hover:shadow-md flex-shrink-0 w-[140px] md:w-auto ${
                         draggedIndex === idx ? "opacity-30" : ""
                       }`}
                     >
@@ -716,6 +716,17 @@ export default function ImageToPDF() {
                         <span className="absolute top-2 left-2 bg-indigo-600/90 text-white text-[9px] font-black w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm">
                           {idx + 1}
                         </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeFile(idx);
+                          }}
+                          className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-full shadow transition hover:scale-110 active:scale-90 z-20 cursor-pointer"
+                          title="Remove Image"
+                        >
+                          <X size={10} className="w-2.5 h-2.5" />
+                        </button>
                       </div>
 
                       {/* Info & action buttons */}
@@ -761,14 +772,6 @@ export default function ImageToPDF() {
                                 🎨 Edit
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => removeFile(idx)}
-                              className="p-1 bg-white border border-slate-205 text-red-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title="Remove"
-                            >
-                              <X size={12} />
-                            </button>
                           </div>
                         </div>
                       </div>
@@ -853,61 +856,65 @@ export default function ImageToPDF() {
 
       {editingIndex !== null && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/85 z-50 p-4 md:p-6 backdrop-blur-md overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700/80 p-5 md:p-6 rounded-2xl shadow-2xl text-left w-full max-w-4xl relative flex flex-col md:flex-row gap-6 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl text-left w-full max-w-4xl relative flex flex-col max-h-[92vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             
-            {/* Close Button */}
-            <button
-              onClick={() => { setEditingIndex(null); setImageObject(null); }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full border border-slate-700 transition z-10 animate-in fade-in"
-            >
-              <X size={20} />
-            </button>
-
-            {/* Left side: Canvas Editor workspace */}
-            <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-4 min-h-[300px] md:min-h-[460px] relative overflow-hidden select-none">
-              {!imageObject ? (
-                <div className="flex flex-col items-center gap-2 text-indigo-400">
-                  <Loader2 className="animate-spin w-8 h-8" />
-                  <span className="text-xs text-slate-400 font-semibold">Creating workspace...</span>
-                </div>
-              ) : (
-                <div className="relative max-w-full overflow-hidden flex items-center justify-center">
-                  <canvas
-                    ref={canvasRef}
-                    onMouseDown={handleCanvasStart}
-                    onMouseMove={handleCanvasMove}
-                    onMouseUp={handleCanvasEnd}
-                    onMouseLeave={handleCanvasEnd}
-                    onTouchStart={handleCanvasStart}
-                    onTouchMove={handleCanvasMove}
-                    onTouchEnd={handleCanvasEnd}
-                    className={`max-w-full max-h-[50vh] border border-slate-800 rounded shadow-inner ${
-                      cropMode ? "cursor-crosshair" : "cursor-default"
-                    }`}
-                  />
-                </div>
-              )}
-              {cropMode && (
-                <p className="text-[10px] text-yellow-500 font-bold mt-2 text-center animate-pulse">
-                  🖱️ Click and drag on the canvas to draw a crop selection area.
+            {/* Header bar - stays fixed at top of modal */}
+            <div className="flex justify-between items-center px-5 py-4 border-b border-slate-805 bg-slate-900 rounded-t-2xl z-10 flex-shrink-0">
+              <div className="overflow-hidden mr-3">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
+                  🎨 Canvas Image Editor
+                </h3>
+                <p className="text-[10px] text-slate-500 truncate" title={files[editingIndex]?.file?.name}>
+                  File: {files[editingIndex]?.file?.name}
                 </p>
-              )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEditingIndex(null); setImageObject(null); }}
+                className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 p-1.5 rounded-full border border-slate-700 transition cursor-pointer"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            {/* Right side: Editor controls */}
-            <div className="w-full md:w-80 flex flex-col justify-between gap-6 border-t md:border-t-0 md:border-l border-slate-800 pt-6 md:pt-0 md:pl-6 text-slate-200">
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    🎨 Image Editor
-                  </h3>
-                  <p className="text-xs text-slate-405 mt-1 truncate max-w-[260px]" title={files[editingIndex]?.file?.name}>
-                    Editing: {files[editingIndex]?.file?.name}
-                  </p>
-                </div>
+            {/* Scrollable contents zone for mobile/desktop layouts */}
+            <div className="p-5 md:p-6 flex flex-col md:flex-row gap-6 overflow-y-auto flex-grow custom-scrollbar">
 
-                {/* Transform features */}
-                <div className="space-y-3.5">
+              {/* Left side: Canvas Editor workspace */}
+              <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-4 min-h-[300px] md:min-h-[460px] relative overflow-hidden select-none">
+                {!imageObject ? (
+                  <div className="flex flex-col items-center gap-2 text-indigo-400">
+                    <Loader2 className="animate-spin w-8 h-8" />
+                    <span className="text-xs text-slate-400 font-semibold">Creating workspace...</span>
+                  </div>
+                ) : (
+                  <div className="relative max-w-full overflow-hidden flex items-center justify-center">
+                    <canvas
+                      ref={canvasRef}
+                      onMouseDown={handleCanvasStart}
+                      onMouseMove={handleCanvasMove}
+                      onMouseUp={handleCanvasEnd}
+                      onMouseLeave={handleCanvasEnd}
+                      onTouchStart={handleCanvasStart}
+                      onTouchMove={handleCanvasMove}
+                      onTouchEnd={handleCanvasEnd}
+                      className={`max-w-full max-h-[50vh] border border-slate-800 rounded shadow-inner ${
+                        cropMode ? "cursor-crosshair" : "cursor-default"
+                      }`}
+                    />
+                  </div>
+                )}
+                {cropMode && (
+                  <p className="text-[10px] text-yellow-500 font-bold mt-2 text-center animate-pulse">
+                    🖱️ Click and drag on the canvas to draw a crop selection area.
+                  </p>
+                )}
+              </div>
+
+              {/* Right side: Editor controls */}
+              <div className="w-full md:w-80 flex flex-col justify-between gap-6 border-t md:border-t-0 md:border-l border-slate-800 pt-6 md:pt-0 md:pl-6 text-slate-200">
+                <div className="space-y-6"><div className="space-y-3.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block border-b border-slate-800 pb-1.5">
                     Transform Rules
                   </span>
@@ -1114,6 +1121,7 @@ export default function ImageToPDF() {
                 </div>
               </div>
 
+            </div>
             </div>
 
           </div>
