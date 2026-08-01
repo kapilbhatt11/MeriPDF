@@ -1,7 +1,7 @@
 "use client";
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import axios from "axios";
-import { Loader2, FileDown, X, Image as ImageIcon, HelpCircle, UploadCloud, Plus, GripVertical } from "lucide-react";
+import { Loader2, FileDown, X, Image as ImageIcon, HelpCircle, UploadCloud, Plus, GripVertical, Paintbrush } from "lucide-react";
 import { api } from "@/lib/api";
 import { optionalAuthHeaders } from "@/lib/auth";
 import { logPDFOperation } from "@/lib/analytics";
@@ -728,20 +728,6 @@ export default function ImageToPDF() {
                         >
                           <X size={10} className="w-2.5 h-2.5" />
                         </button>
-
-                        {/* Center Hover/Mobile Edit Button Overlay */}
-                        {renderable && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingIndex(idx)}
-                            className="absolute inset-0 bg-slate-950/40 hover:bg-slate-950/65 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-1 cursor-pointer z-10"
-                            title="Click to Edit"
-                          >
-                            <span className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-md hover:scale-105 active:scale-95 transition">
-                              🎨 Edit
-                            </span>
-                          </button>
-                        )}
                       </div>
 
                       {/* Info & action buttons */}
@@ -753,14 +739,14 @@ export default function ImageToPDF() {
                           {(item.file.size / 1024 / 1024).toFixed(2)} MB
                         </span>
 
-                        <div className="flex items-center justify-center border-t border-slate-200/80 pt-2 mt-1">
+                        <div className="flex items-center justify-between border-t border-slate-200/80 pt-2 mt-1 gap-1">
                           {/* Reordering buttons (desktop & mobile friendly) */}
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => moveFile(idx, "up")}
                               disabled={idx === 0}
-                              className="p-1 px-2.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-605 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-xs"
+                              className="p-1 px-1.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
                               title="Move Left"
                             >
                               <span className="text-[10px] font-bold font-mono">◀</span>
@@ -769,12 +755,24 @@ export default function ImageToPDF() {
                               type="button"
                               onClick={() => moveFile(idx, "down")}
                               disabled={idx === files.length - 1}
-                              className="p-1 px-2.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-605 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-xs"
+                              className="p-1 px-1.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
                               title="Move Right"
                             >
                               <span className="text-[10px] font-bold font-mono">▶</span>
                             </button>
                           </div>
+
+                          {renderable && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingIndex(idx)}
+                              className="p-1 px-1.5 bg-indigo-50 border border-indigo-150 text-indigo-705 hover:bg-indigo-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-bold"
+                              title="Edit / Preview"
+                            >
+                              <Paintbrush size={10} className="w-3 h-3 text-indigo-600" />
+                              <span>Edit</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
