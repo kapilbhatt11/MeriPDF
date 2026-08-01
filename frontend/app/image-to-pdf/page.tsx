@@ -1004,6 +1004,23 @@ export default function ImageToPDF() {
                           />
                         );
                       })}
+                      
+                      {/* Custom Color Wheel Picker */}
+                      <div className="relative flex items-center justify-center w-5 h-5 rounded-full border border-slate-700 bg-gradient-to-tr from-rose-500 via-yellow-400 to-indigo-500 hover:scale-110 active:scale-95 transition cursor-pointer overflow-hidden shadow-sm ml-1 animate-in zoom-in-95" title="Choose custom color">
+                        <input
+                          type="color"
+                          value={selectedTextId ? (editorTextOverlays.find(t => t.id === selectedTextId)?.color || textColor) : textColor}
+                          onChange={(e) => {
+                            const customC = e.target.value;
+                            if (selectedTextId) {
+                              setEditorTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, color: customC } : t));
+                            }
+                            setTextColor(customC);
+                          }}
+                          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                        />
+                        <span className="text-[9px] pointer-events-none text-white font-black drop-shadow-sm select-none">🎨</span>
+                      </div>
                     </div>
 
                     {/* Font size control */}
