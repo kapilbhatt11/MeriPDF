@@ -15,7 +15,31 @@ export default function WordToPdf() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const fetchThumbnail = async (file: File) => {
+    const key = `${file.name}_${file.size}`;
+    if (previews[key]) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await axios.post(
+        api("/converters/document-thumbnail"),
+        formData,
+        {
+          responseType: "blob",
+          headers: optionalAuthHeaders(),
+        }
+      );
+      const url = URL.createObjectURL(new Blob([res.data], { type: "image/png" }));
+      setPreviews(prev => ({ ...prev, [key]: url }));
+    } catch (err) {
+      console.error("Failed to generate document preview", err);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -37,6 +61,7 @@ export default function WordToPdf() {
       
       setFiles(prev => [...prev, ...validDocs]);
       setDownloadUrl(null);
+      validDocs.forEach(fetchThumbnail);
     }
   };
 
@@ -71,6 +96,7 @@ export default function WordToPdf() {
       
       setFiles(prev => [...prev, ...validDocs]);
       setDownloadUrl(null);
+      validDocs.forEach(fetchThumbnail);
     }
   };
 
@@ -237,12 +263,20 @@ export default function WordToPdf() {
                     }`}
                   >
                     <div className="w-full aspect-[4/3] bg-gradient-to-tr from-blue-50 to-indigo-50/60 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200 relative group cursor-grab">
-                      <div className="flex flex-col items-center justify-center text-blue-600 transition-transform duration-200 group-hover:scale-105">
-                        <FileIcon className="w-10 h-10 opacity-85" />
-                        <span className="text-[8px] uppercase font-black tracking-widest mt-1.5 text-blue-700/80 bg-blue-100/50 px-1.5 py-0.5 rounded">
-                          Word Doc
-                        </span>
-                      </div>
+                      {previews[`${file.name}_${file.size}`] ? (
+                        <img 
+                          src={previews[`${file.name}_${file.size}`]} 
+                          alt="First page preview" 
+                          className="w-full h-full object-cover object-top transition-transform duration-200 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-blue-600 transition-transform duration-200 group-hover:scale-105">
+                          <FileIcon className="w-10 h-10 opacity-85" />
+                          <span className="text-[8px] uppercase font-black tracking-widest mt-1.5 text-blue-700/80 bg-blue-100/50 px-1.5 py-0.5 rounded">
+                            Word Doc
+                          </span>
+                        </div>
+                      )}
                       
                       <span className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm z-10">
                         {idx + 1}

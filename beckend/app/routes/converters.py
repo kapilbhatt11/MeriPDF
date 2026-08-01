@@ -968,7 +968,6 @@ header, footer, nav, aside, .cookie-banner, .modal, .popup {
         parsed_url = urlparse(url)
         domain = parsed_url.netloc.replace("www.", "") or "webpage"
         clean_filename = f"Webpage_{domain}.pdf"
-        
         return FileResponse(
             out_path,
             media_type="application/pdf",
@@ -978,5 +977,72 @@ header, footer, nav, aside, .cookie-banner, .modal, .popup {
     except Exception as e:
         print("URL to PDF Error:", e)
         raise HTTPException(status_code=500, detail=f"Failed to convert URL to PDF: {str(e)}")
+
+
+# 🖼️ GENERATE DOCUMENT THUMBNAIL
+@router.post("/document-thumbnail")
+async def document_thumbnail(file: UploadFile = File(...)):
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".doc", ".docx", ".ppt", ".pptx", ".pdf"]:
+        raise HTTPException(status_code=400, detail="Unsupported file format for thumbnail generation.")
+    
+    import uuid
+    import tempfile
+    import fitz
+    
+    unique_id = str(uuid.uuid4())
+    temp_dir = tempfile.gettempdir()
+    in_path = os.path.join(temp_dir, f"thumb_in_{unique_id}{ext}")
+    
+    try:
+        # Save temp file
+        with open(in_path, "wb") as f:
+            f.write(await file.read())
+            
+        out_pdf_path = None
+        
+        # If it is already a PDF
+        if ext == ".pdf":
+            out_pdf_path = in_path
+        else:
+            # Convert doc/docx/ppt/pptx to PDF with LibreOffice
+            out_pdf_path = convert_to_pdf_with_libreoffice(in_path, temp_dir)
+            
+        # Extract first page using PyMuPDF (fitz)
+        doc = fitz.open(out_pdf_path)
+        if len(doc) == 0:
+            raise Exception("Generated PDF contains no pages")
+            
+        page = doc[0]
+        pix = page.get_pixmap(dpi=100) # Quick preview dpi
+        
+        png_filename = f"thumb_out_{unique_id}.png"
+        png_path = os.path.join(temp_dir, png_filename)
+        pix.save(png_path)
+        
+        doc.close()
+        
+        # Clean up input and converted files
+        if os.path.exists(in_path):
+            try: os.remove(in_path)
+            except: pass
+        if out_pdf_path and out_pdf_path != in_path and os.path.exists(out_pdf_path):
+            try: os.remove(out_pdf_path)
+            except: pass
+            
+        # Return the PNG thumbnail
+        return FileResponse(
+            png_path,
+            media_type="image/png",
+            filename="thumbnail.png"
+        )
+        
+    except Exception as e:
+        # Clean up on failure
+        if os.path.exists(in_path):
+            try: os.remove(in_path)
+            except: pass
+        print("Thumbnail Generation Error:", e)
+        raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {str(e)}")
 
 
