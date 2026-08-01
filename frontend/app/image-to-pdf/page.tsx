@@ -1,5 +1,5 @@
 "use client";
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import axios from "axios";
 import { Loader2, FileDown, X, Image as ImageIcon, HelpCircle, UploadCloud, Plus, GripVertical } from "lucide-react";
 import { api } from "@/lib/api";
@@ -9,6 +9,7 @@ import { logPDFOperation } from "@/lib/analytics";
 interface ImageFile {
   file: File;
   preview: string;
+  originalFile: File;
 }
 
 export default function ImageToPDF() {
@@ -20,6 +21,34 @@ export default function ImageToPDF() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Image Editor Canvas States & Refs
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editorTextOverlays, setEditorTextOverlays] = useState<Array<{
+    id: string;
+    text: string;
+    x: number;
+    y: number;
+    color: string;
+    size: number;
+  }>>([]);
+  const [editorRotateAngle, setEditorRotateAngle] = useState<number>(0);
+  const [currentCrop, setCurrentCrop] = useState<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 1, h: 1 });
+  const [cropMode, setCropMode] = useState<boolean>(false);
+  const [isDrawingCrop, setIsDrawingCrop] = useState<boolean>(false);
+  const [cropStart, setCropStart] = useState<{ x: number; y: number } | null>(null);
+  const [editorCropBox, setEditorCropBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  
+  // Adding Text states
+  const [newText, setNewText] = useState<string>("");
+  const [textColor, setTextColor] = useState<string>("#e11d48"); // default rose-600
+  const [textSize, setTextSize] = useState<number>(24);
+  const [activeTextId, setActiveTextId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [imageObject, setImageObject] = useState<HTMLImageElement | null>(null);
+  const canvasDimsRef = useRef({ w: 0, h: 0 });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -41,7 +70,8 @@ export default function ImageToPDF() {
       
       const mapped = validImages.map(f => ({
         file: f,
-        preview: URL.createObjectURL(f)
+        preview: URL.createObjectURL(f),
+        originalFile: f
       }));
       setFiles(prev => [...prev, ...mapped]);
       setDownloadUrl(null);
@@ -79,7 +109,8 @@ export default function ImageToPDF() {
       
       const mapped = validImages.map(f => ({
         file: f,
-        preview: URL.createObjectURL(f)
+        preview: URL.createObjectURL(f),
+        originalFile: f
       }));
       setFiles(prev => [...prev, ...mapped]);
       setDownloadUrl(null);
@@ -106,6 +137,347 @@ export default function ImageToPDF() {
     reordered[nextIndex] = temp;
     setFiles(reordered);
     setDownloadUrl(null);
+  };
+
+  // --- Canvas Editor Logic ---
+  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    
+    let clientX = 0;
+    let clientY = 0;
+    
+    if ("touches" in e) {
+      if (e.touches.length === 0) return null;
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    return { x, y };
+  };
+
+  const handleCanvasStart = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const coords = getCanvasCoords(e);
+    if (!coords) return;
+    
+    // Check text overlays draggable bounds
+    let foundId = null;
+    for (let i = editorTextOverlays.length - 1; i >= 0; i--) {
+      const textItem = editorTextOverlays[i];
+      const w = textItem.text.length * textItem.size * 0.5;
+      const h = textItem.size;
+      
+      if (
+        coords.x >= textItem.x - w/2 &&
+        coords.x <= textItem.x + w/2 &&
+        coords.y >= textItem.y - h/2 &&
+        coords.y <= textItem.y + h/2
+      ) {
+        foundId = textItem.id;
+        setDragOffset({ x: coords.x - textItem.x, y: coords.y - textItem.y });
+        break;
+      }
+    }
+    
+    if (foundId) {
+      setActiveTextId(foundId);
+    } else if (cropMode) {
+      setIsDrawingCrop(true);
+      setCropStart({ x: coords.x, y: coords.y });
+      setEditorCropBox({ x: coords.x, y: coords.y, w: 0, h: 0 });
+    }
+  };
+
+  const handleCanvasMove = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const coords = getCanvasCoords(e);
+    if (!coords) return;
+    
+    if (activeTextId) {
+      setEditorTextOverlays(prev => prev.map(item => {
+        if (item.id === activeTextId) {
+          return {
+            ...item,
+            x: coords.x - dragOffset.x,
+            y: coords.y - dragOffset.y
+          };
+        }
+        return item;
+      }));
+    } else if (cropMode && isDrawingCrop && cropStart) {
+      const x = Math.min(cropStart.x, coords.x);
+      const y = Math.min(cropStart.y, coords.y);
+      const w = Math.abs(cropStart.x - coords.x);
+      const h = Math.abs(cropStart.y - coords.y);
+      setEditorCropBox({ x, y, w, h });
+    }
+  };
+
+  const handleCanvasEnd = () => {
+    setActiveTextId(null);
+    setIsDrawingCrop(false);
+    setCropStart(null);
+  };
+
+  // Loads active image when editor modal is opened
+  useEffect(() => {
+    if (editingIndex === null) {
+      setImageObject(null);
+      return;
+    }
+    
+    const activeFile = files[editingIndex];
+    if (!activeFile) return;
+    
+    const img = new Image();
+    img.src = activeFile.preview;
+    img.onload = () => {
+      setImageObject(img);
+      setEditorRotateAngle(0);
+      setCurrentCrop({ x: 0, y: 0, w: 1, h: 1 });
+      setEditorTextOverlays([]);
+      setEditorCropBox(null);
+      setCropMode(false);
+    };
+  }, [editingIndex]);
+
+  // Continuous canvas updates render loop
+  useEffect(() => {
+    if (!imageObject || !canvasRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    const imgW = imageObject.naturalWidth;
+    const imgH = imageObject.naturalHeight;
+    
+    const srcX = imgW * currentCrop.x;
+    const srcY = imgH * currentCrop.y;
+    const srcW = imgW * currentCrop.w;
+    const srcH = imgH * currentCrop.h;
+    
+    const rotatedW = (editorRotateAngle % 180 === 0) ? srcW : srcH;
+    const rotatedH = (editorRotateAngle % 180 === 0) ? srcH : srcW;
+    
+    const maxDisplayDim = 500;
+    let displayWidth = 0;
+    let displayHeight = 0;
+    
+    if (rotatedW > rotatedH) {
+      displayWidth = maxDisplayDim;
+      displayHeight = (rotatedH / rotatedW) * maxDisplayDim;
+    } else {
+      displayHeight = maxDisplayDim;
+      displayWidth = (rotatedW / rotatedH) * maxDisplayDim;
+    }
+    
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    canvasDimsRef.current = { w: displayWidth, h: displayHeight };
+    
+    ctx.clearRect(0, 0, displayWidth, displayHeight);
+    
+    // Draw rotated base image slice
+    ctx.save();
+    ctx.translate(displayWidth / 2, displayHeight / 2);
+    ctx.rotate((editorRotateAngle * Math.PI) / 180);
+    
+    const drawW = (editorRotateAngle % 180 === 0) ? displayWidth : displayHeight;
+    const drawH = (editorRotateAngle % 180 === 0) ? displayHeight : displayWidth;
+    
+    ctx.drawImage(
+      imageObject,
+      srcX, srcY, srcW, srcH,
+      -drawW / 2, -drawH / 2, drawW, drawH
+    );
+    ctx.restore();
+    
+    // Draw text annotations
+    editorTextOverlays.forEach(item => {
+      ctx.save();
+      ctx.fillStyle = item.color;
+      ctx.font = `bold ${item.size}px Arial`;
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      ctx.fillText(item.text, item.x, item.y);
+      ctx.restore();
+    });
+    
+    // Draw cropping overlay box
+    if (cropMode && editorCropBox) {
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.beginPath();
+      ctx.rect(0, 0, displayWidth, displayHeight);
+      ctx.rect(editorCropBox.x, editorCropBox.y, editorCropBox.w, editorCropBox.h);
+      ctx.fill("evenodd");
+      
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(editorCropBox.x, editorCropBox.y, editorCropBox.w, editorCropBox.h);
+      ctx.restore();
+    }
+  }, [imageObject, editorRotateAngle, currentCrop, editorTextOverlays, cropMode, editorCropBox]);
+
+  const handleRotate = () => {
+    setEditorRotateAngle(prev => (prev + 90) % 360);
+    setEditorCropBox(null);
+  };
+
+  const handleApplyCrop = () => {
+    if (!editorCropBox || editorCropBox.w < 10 || editorCropBox.h < 10) return;
+    
+    const { w: displayWidth, h: displayHeight } = canvasDimsRef.current;
+    
+    const cx = editorCropBox.x;
+    const cy = editorCropBox.y;
+    const cw = editorCropBox.w;
+    const ch = editorCropBox.h;
+    
+    const newX = currentCrop.x + (cx / displayWidth) * currentCrop.w;
+    const newY = currentCrop.y + (cy / displayHeight) * currentCrop.h;
+    const newW = (cw / displayWidth) * currentCrop.w;
+    const newH = (ch / displayHeight) * currentCrop.h;
+    
+    setCurrentCrop({ x: newX, y: newY, w: newW, h: newH });
+    setEditorCropBox(null);
+    setCropMode(false);
+  };
+
+  const handleAddText = () => {
+    if (!newText.trim()) return;
+    
+    const { w: displayWidth, h: displayHeight } = canvasDimsRef.current;
+    
+    const textItem = {
+      id: Math.random().toString(36).substring(2, 9),
+      text: newText,
+      x: displayWidth / 2,
+      y: displayHeight / 2,
+      color: textColor,
+      size: textSize
+    };
+    
+    setEditorTextOverlays(prev => [...prev, textItem]);
+    setNewText("");
+  };
+
+  const handleResetImage = () => {
+    if (editingIndex === null) return;
+    
+    const original = files[editingIndex].originalFile;
+    const originalPreview = URL.createObjectURL(original);
+    
+    setFiles(prev => prev.map((item, idx) => {
+      if (idx === editingIndex) {
+        URL.revokeObjectURL(item.preview);
+        return {
+          ...item,
+          file: original,
+          preview: originalPreview
+        };
+      }
+      return item;
+    }));
+    
+    const img = new Image();
+    img.src = originalPreview;
+    img.onload = () => {
+      setImageObject(img);
+      setEditorRotateAngle(0);
+      setCurrentCrop({ x: 0, y: 0, w: 1, h: 1 });
+      setEditorTextOverlays([]);
+      setEditorCropBox(null);
+      setCropMode(false);
+    };
+  };
+
+  const handleSaveChanges = () => {
+    if (editingIndex === null || !imageObject) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const imgW = imageObject.naturalWidth;
+    const imgH = imageObject.naturalHeight;
+    
+    const outW = imgW * currentCrop.w;
+    const outH = imgH * currentCrop.h;
+    
+    const exportW = (editorRotateAngle % 180 === 0) ? outW : outH;
+    const exportH = (editorRotateAngle % 180 === 0) ? outH : outW;
+    
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = exportW;
+    exportCanvas.height = exportH;
+    const exportCtx = exportCanvas.getContext("2d");
+    if (!exportCtx) return;
+    
+    exportCtx.translate(exportW / 2, exportH / 2);
+    exportCtx.rotate((editorRotateAngle * Math.PI) / 180);
+    
+    const drawW = (editorRotateAngle % 180 === 0) ? exportW : exportH;
+    const drawH = (editorRotateAngle % 180 === 0) ? exportH : exportW;
+    
+    exportCtx.drawImage(
+      imageObject,
+      imgW * currentCrop.x, imgH * currentCrop.y, outW, outH,
+      -drawW / 2, -drawH / 2, drawW, drawH
+    );
+    exportCtx.restore();
+    
+    const { w: displayWidth, h: displayHeight } = canvasDimsRef.current;
+    const scaleFactorX = exportW / displayWidth;
+    const scaleFactorY = exportH / displayHeight;
+    
+    editorTextOverlays.forEach(item => {
+      exportCtx.save();
+      exportCtx.fillStyle = item.color;
+      const scaledSize = item.size * scaleFactorY;
+      exportCtx.font = `bold ${scaledSize}px Arial`;
+      exportCtx.textBaseline = "middle";
+      exportCtx.textAlign = "center";
+      
+      const scaledX = item.x * scaleFactorX;
+      const scaledY = item.y * scaleFactorY;
+      
+      exportCtx.fillText(item.text, scaledX, scaledY);
+      exportCtx.restore();
+    });
+    
+    exportCanvas.toBlob(blob => {
+      if (!blob) return;
+      
+      const originalItem = files[editingIndex];
+      const updatedFile = new File([blob], originalItem.file.name, {
+        type: "image/jpeg",
+        lastModified: Date.now()
+      });
+      
+      URL.revokeObjectURL(originalItem.preview);
+      const newPreview = URL.createObjectURL(updatedFile);
+      
+      setFiles(prev => prev.map((item, idx) => {
+        if (idx === editingIndex) {
+          return {
+            ...item,
+            file: updatedFile,
+            preview: newPreview
+          };
+        }
+        return item;
+      }));
+      
+      setEditingIndex(null);
+      setImageObject(null);
+    }, "image/jpeg", 0.92);
   };
 
   const isRenderable = (fileName: string) => {
@@ -322,14 +694,26 @@ export default function ImageToPDF() {
                             </button>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => removeFile(idx)}
-                            className="p-1 bg-white border border-slate-200 text-red-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                            title="Remove"
-                          >
-                            <X size={12} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {renderable && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingIndex(idx)}
+                                className="p-1 px-1.5 bg-indigo-50 border border-indigo-150 text-indigo-700 hover:bg-indigo-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[9px] font-bold"
+                                title="Edit / Preview"
+                              >
+                                🎨 Edit
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removeFile(idx)}
+                              className="p-1 bg-white border border-slate-205 text-red-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title="Remove"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -407,6 +791,199 @@ export default function ImageToPDF() {
             >
               Got it, let's go!
             </button>
+          </div>
+        </div>
+      )}
+
+      {editingIndex !== null && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/85 z-50 p-4 md:p-6 backdrop-blur-md overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700/80 p-5 md:p-6 rounded-2xl shadow-2xl text-left w-full max-w-4xl relative flex flex-col md:flex-row gap-6 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            
+            {/* Close Button */}
+            <button
+              onClick={() => { setEditingIndex(null); setImageObject(null); }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full border border-slate-700 transition z-10 animate-in fade-in"
+            >
+              <X size={20} />
+            </button>
+
+            {/* Left side: Canvas Editor workspace */}
+            <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 rounded-xl border border-slate-800 p-4 min-h-[300px] md:min-h-[460px] relative overflow-hidden select-none">
+              {!imageObject ? (
+                <div className="flex flex-col items-center gap-2 text-indigo-400">
+                  <Loader2 className="animate-spin w-8 h-8" />
+                  <span className="text-xs text-slate-400 font-semibold">Creating workspace...</span>
+                </div>
+              ) : (
+                <div className="relative max-w-full overflow-hidden flex items-center justify-center">
+                  <canvas
+                    ref={canvasRef}
+                    onMouseDown={handleCanvasStart}
+                    onMouseMove={handleCanvasMove}
+                    onMouseUp={handleCanvasEnd}
+                    onMouseLeave={handleCanvasEnd}
+                    onTouchStart={handleCanvasStart}
+                    onTouchMove={handleCanvasMove}
+                    onTouchEnd={handleCanvasEnd}
+                    className={`max-w-full max-h-[50vh] border border-slate-800 rounded shadow-inner ${
+                      cropMode ? "cursor-crosshair" : "cursor-default"
+                    }`}
+                  />
+                </div>
+              )}
+              {cropMode && (
+                <p className="text-[10px] text-yellow-500 font-bold mt-2 text-center animate-pulse">
+                  🖱️ Click and drag on the canvas to draw a crop selection area.
+                </p>
+              )}
+            </div>
+
+            {/* Right side: Editor controls */}
+            <div className="w-full md:w-80 flex flex-col justify-between gap-6 border-t md:border-t-0 md:border-l border-slate-800 pt-6 md:pt-0 md:pl-6 text-slate-200">
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    🎨 Image Editor
+                  </h3>
+                  <p className="text-xs text-slate-405 mt-1 truncate max-w-[260px]" title={files[editingIndex]?.file?.name}>
+                    Editing: {files[editingIndex]?.file?.name}
+                  </p>
+                </div>
+
+                {/* Transform features */}
+                <div className="space-y-3.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block border-b border-slate-800 pb-1.5">
+                    Transform Rules
+                  </span>
+                  
+                  <div className="flex gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleRotate}
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold p-2.5 rounded-xl border border-slate-700 text-xs flex items-center justify-center gap-2 transition"
+                    >
+                      🔄 Rotate +90°
+                    </button>
+                    
+                    <button
+                      type="button"
+                      disabled={!imageObject}
+                      onClick={() => {
+                        setCropMode(!cropMode);
+                        setEditorCropBox(null);
+                      }}
+                      className={`flex-1 font-bold p-2.5 rounded-xl border text-xs flex items-center justify-center gap-2 transition disabled:opacity-40 ${
+                        cropMode
+                          ? "bg-amber-600 border-amber-500 hover:bg-amber-700 text-white"
+                          : "bg-slate-800 border-slate-700 hover:bg-slate-700 text-white"
+                      }`}
+                    >
+                      ✂️ Crop Image
+                    </button>
+                  </div>
+
+                  {cropMode && editorCropBox && editorCropBox.w > 10 && editorCropBox.h > 10 && (
+                    <button
+                      type="button"
+                      onClick={handleApplyCrop}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition animate-in zoom-in-95"
+                    >
+                      ✔️ Apply Selected Crop
+                    </button>
+                  )}
+                </div>
+
+                {/* Annotation features */}
+                <div className="space-y-3.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block border-b border-slate-800 pb-1.5">
+                    Annotate / Add Text
+                  </span>
+                  
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Type text overlay..."
+                      value={newText}
+                      onChange={(e) => setNewText(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-505 focus:outline-none focus:border-indigo-500"
+                    />
+
+                    {/* Color Presets */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 mr-1">Color:</span>
+                      {["#ffffff", "#000000", "#e11d48", "#eab308", "#2563eb", "#16a34a"].map((c, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setTextColor(c)}
+                          className={`w-5 h-5 rounded-full border transition ${
+                            textColor === c ? "border-white scale-110 shadow" : "border-slate-850"
+                          }`}
+                          style={{ backgroundColor: c }}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Font size control */}
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Size: {textSize}px</span>
+                      <input
+                        type="range"
+                        min="12"
+                        max="80"
+                        value={textSize}
+                        onChange={(e) => setTextSize(Number(e.target.value))}
+                        className="w-2/3 accent-indigo-500 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddText}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                    >
+                      ✍️ Add Text Box
+                    </button>
+                    {editorTextOverlays.length > 0 && (
+                      <p className="text-[9px] text-slate-450 font-bold block pt-1 text-center text-slate-400">
+                        💡 Click & drag placed text items on canvas to move.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Reset, Cancel, Save action group */}
+              <div className="space-y-2.5 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleResetImage}
+                  className="w-full bg-slate-950 text-slate-400 hover:text-white border border-slate-850 hover:border-slate-700 font-bold py-2.5 rounded-xl text-xs transition"
+                >
+                  ↩️ Reset Original Image
+                </button>
+                
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setEditingIndex(null); setImageObject(null); }}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs border border-slate-700 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveChanges}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
           </div>
         </div>
       )}
