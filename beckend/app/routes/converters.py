@@ -30,6 +30,8 @@ router = APIRouter(prefix="/converters", tags=["converters"])
 async def image_to_pdf(files: list[UploadFile] = File(...)):
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > 50:
+        raise HTTPException(status_code=400, detail="Maximum limit of 50 images exceeded per conversion request.")
     
     try:
         images_list = []
@@ -623,6 +625,8 @@ async def handle_libreoffice_conversion(file: UploadFile, allowed_exts: list[str
 async def word_to_pdf(files: list[UploadFile] = File(...)):
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > 50:
+        raise HTTPException(status_code=400, detail="Maximum limit of 50 documents exceeded per conversion request.")
     
     if len(files) == 1:
         return await handle_libreoffice_conversion(

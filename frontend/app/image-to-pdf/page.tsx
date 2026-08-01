@@ -18,6 +18,7 @@ export default function ImageToPDF() {
   const [downloadName, setDownloadName] = useState<string>("Converted_Images.pdf");
   const [showHelp, setShowHelp] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,11 +26,55 @@ export default function ImageToPDF() {
       const newFiles = Array.from(e.target.files);
       const validImages = newFiles.filter(f => {
         const ext = f.name.split('.').pop()?.toLowerCase();
-        return f.type.startsWith('image/') || ext === 'heic' || ext === 'heif';
+        return f.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'].includes(ext || '');
       });
       
       if (validImages.length !== newFiles.length) {
-        alert("Some files were discarded. Please upload valid images only (JPG, PNG, HEIC).");
+        alert("Some files were discarded. Please upload valid images only (JPG, PNG, HEIC, WEBP).");
+      }
+      
+      const maxLimit = 50;
+      if (files.length + validImages.length > maxLimit) {
+        alert(`Maximum limit of ${maxLimit} images reached. You can only convert up to ${maxLimit} images at a time.`);
+        return;
+      }
+      
+      const mapped = validImages.map(f => ({
+        file: f,
+        preview: URL.createObjectURL(f)
+      }));
+      setFiles(prev => [...prev, ...mapped]);
+      setDownloadUrl(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const newFiles = Array.from(e.dataTransfer.files);
+      const validImages = newFiles.filter(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase();
+        return f.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'].includes(ext || '');
+      });
+      
+      if (validImages.length !== newFiles.length) {
+        alert("Some files were discarded. Please upload valid images only (JPG, PNG, HEIC, WEBP).");
+      }
+      
+      const maxLimit = 50;
+      if (files.length + validImages.length > maxLimit) {
+        alert(`Maximum limit of ${maxLimit} images reached. You can only convert up to ${maxLimit} images at a time.`);
+        return;
       }
       
       const mapped = validImages.map(f => ({
@@ -156,7 +201,16 @@ export default function ImageToPDF() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
         {/* ================= LEFT : UPLOAD PANEL ================= */}
-        <div className="bg-indigo-50/50 border-2 border-dashed border-indigo-300 rounded-xl p-8 flex flex-col items-center justify-center text-center transition min-h-[300px]">
+        <div 
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition min-h-[300px] ${
+            isDragOver 
+              ? "bg-indigo-100 border-indigo-500 scale-[1.01]" 
+              : "bg-indigo-50/50 border-indigo-300 hover:bg-indigo-100/50 hover:border-indigo-400"
+          }`}
+        >
           <div className="bg-white p-4 rounded-full shadow mb-4">
             <UploadCloud className="w-12 h-12 text-indigo-600" />
           </div>

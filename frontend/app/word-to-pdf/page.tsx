@@ -13,6 +13,7 @@ export default function WordToPdf() {
   const [downloadName, setDownloadName] = useState<string>("Converted.pdf");
   const [showHelp, setShowHelp] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,6 +26,46 @@ export default function WordToPdf() {
       
       if (validDocs.length !== newFiles.length) {
         alert("Some files were discarded. Only Word documents (.doc, .docx) are allowed.");
+      }
+      
+      const maxLimitVal = 50;
+      if (files.length + validDocs.length > maxLimitVal) {
+        alert(`Maximum limit of ${maxLimitVal} documents reached. You can only convert up to ${maxLimitVal} documents at a time.`);
+        return;
+      }
+      
+      setFiles(prev => [...prev, ...validDocs]);
+      setDownloadUrl(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const newFiles = Array.from(e.dataTransfer.files);
+      const validDocs = newFiles.filter(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase();
+        return ext === 'docx' || ext === 'doc';
+      });
+      
+      if (validDocs.length !== newFiles.length) {
+        alert("Some files were discarded. Only Word documents (.doc, .docx) are allowed.");
+      }
+      
+      const maxLimitVal = 50;
+      if (files.length + validDocs.length > maxLimitVal) {
+        alert(`Maximum limit of ${maxLimitVal} documents reached. You can only convert up to ${maxLimitVal} documents at a time.`);
+        return;
       }
       
       setFiles(prev => [...prev, ...validDocs]);
@@ -126,7 +167,16 @@ export default function WordToPdf() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
-        <div className="bg-blue-50/50 border-2 border-dashed border-blue-400 rounded-xl p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
+        <div 
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition min-h-[300px] ${
+            isDragOver 
+              ? "bg-blue-100 border-blue-500 scale-[1.01]" 
+              : "bg-blue-50/50 border-blue-400 hover:bg-blue-100/50 hover:border-blue-500"
+          }`}
+        >
           <div className="bg-white p-4 rounded-full shadow mb-4">
             <UploadCloud className="w-12 h-12 text-blue-700" />
           </div>
