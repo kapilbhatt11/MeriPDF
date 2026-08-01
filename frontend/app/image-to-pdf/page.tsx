@@ -20,6 +20,7 @@ export default function ImageToPDF() {
   const [showHelp, setShowHelp] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Image Editor Canvas States & Refs
@@ -662,16 +663,16 @@ export default function ImageToPDF() {
         </div>
 
         {/* ================= RIGHT : ACTION PANEL & LIST ================= */}
-        <div className="bg-white border rounded-xl shadow p-8 flex flex-col justify-start">
+        <div className="bg-white border rounded-xl shadow p-8 flex flex-col justify-start" onClick={() => setActiveCardIndex(null)}>
           <h2 className="text-2xl font-bold mb-4 text-gray-800 border-b pb-4">Selected Images</h2>
 
-          {files.length === 0 ? (
+{files.length === 0 ? (
              <div className="flex-grow flex flex-col items-center justify-center text-gray-400 py-10">
                <ImageIcon size={40} className="mb-3 opacity-20" />
                <p className="text-sm">No images selected yet.</p>
              </div>
           ) : (
-            <div className="flex-grow overflow-y-auto max-h-[380px] pr-2 mb-6 custom-scrollbar">
+            <div className="flex-grow overflow-y-auto max-h-[380px] pr-2 mb-6 custom-scrollbar" onClick={() => setActiveCardIndex(null)}>
               <p className="text-xs text-indigo-500 font-bold mb-3">
                 💡 Drag cards to rearrange order, or use arrows (◀ / ▶) to sort on mobile.
               </p>
@@ -695,8 +696,16 @@ export default function ImageToPDF() {
                         setDraggedIndex(null);
                         setDownloadUrl(null);
                       }}
-                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition group shadow-sm select-none hover:border-indigo-400 hover:shadow-md ${
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveCardIndex(idx);
+                      }}
+                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition-all duration-300 group shadow-sm select-none hover:border-indigo-400 hover:shadow-md cursor-pointer ${
                         draggedIndex === idx ? "opacity-30" : ""
+                      } ${
+                        activeCardIndex === idx
+                          ? "ring-2 ring-indigo-500 bg-indigo-50/10 scale-102 z-10 shadow-lg col-span-2 sm:col-span-2 md:col-span-1"
+                          : "border-slate-205"
                       }`}
                     >
                       <div className="w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200 relative group cursor-grab">
@@ -744,29 +753,38 @@ export default function ImageToPDF() {
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => moveFile(idx, "up")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                moveFile(idx, "up");
+                              }}
                               disabled={idx === 0}
-                              className="p-1 px-1.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              className="p-1 px-[7px] bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
                               title="Move Left"
                             >
-                              <span className="text-[10px] font-bold font-mono">◀</span>
+                              <span className="text-[10px] font-bold font-mono leading-none">◀</span>
                             </button>
                             <button
                               type="button"
-                              onClick={() => moveFile(idx, "down")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                moveFile(idx, "down");
+                              }}
                               disabled={idx === files.length - 1}
-                              className="p-1 px-1.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              className="p-1 px-[7px] bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center flex-row"
                               title="Move Right"
                             >
-                              <span className="text-[10px] font-bold font-mono">▶</span>
+                              <span className="text-[10px] font-bold font-mono leading-none">▶</span>
                             </button>
                           </div>
 
                           {renderable && (
                             <button
                               type="button"
-                              onClick={() => setEditingIndex(idx)}
-                              className="p-1 px-1.5 bg-indigo-50 border border-indigo-150 text-indigo-705 hover:bg-indigo-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-bold"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingIndex(idx);
+                              }}
+                              className="p-1 px-1.5 bg-indigo-50 border border-indigo-150 text-indigo-750 hover:bg-indigo-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-bold"
                               title="Edit / Preview"
                             >
                               <Paintbrush size={10} className="w-3 h-3 text-indigo-600" />
