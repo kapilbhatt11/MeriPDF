@@ -1,7 +1,7 @@
 "use client";
 import React, { useRef, useState } from "react";
 import axios from "axios";
-import { Loader2, FileDown, X, FileMinus, HelpCircle, UploadCloud, Plus, File as FileIcon } from "lucide-react";
+import { Loader2, FileDown, X, FileMinus, HelpCircle, UploadCloud, Plus, RotateCw, File as FileIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { optionalAuthHeaders } from "@/lib/auth";
 import { logPDFOperation } from "@/lib/analytics";
@@ -16,7 +16,17 @@ export default function WordToPdf() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
   const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [rotations, setRotations] = useState<Record<string, number>>({});
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleRotate = (file: File) => {
+    const key = `${file.name}_${file.size}`;
+    setRotations(prev => {
+      const current = prev[key] || 0;
+      return { ...prev, [key]: (current + 90) % 360 };
+    });
+    setDownloadUrl(null);
+  };
 
   const fetchThumbnail = async (file: File) => {
     const key = `${file.name}_${file.size}`;
@@ -34,7 +44,7 @@ export default function WordToPdf() {
           headers: optionalAuthHeaders(),
         }
       );
-      const url = URL.createObjectURL(new Blob([res.data], { type: "image/png" }));
+      const url = URL.createObjectURL(res.data);
       setPreviews(prev => ({ ...prev, [key]: url }));
     } catch (err) {
       console.error("Failed to generate document preview", err);
@@ -127,6 +137,8 @@ export default function WordToPdf() {
     const formData = new FormData();
     files.forEach(file => {
       formData.append("files", file);
+      const key = `${file.name}_${file.size}`;
+      formData.append("rotations", String(rotations[key] || 0));
     });
 
     try {
@@ -142,7 +154,7 @@ export default function WordToPdf() {
       const contentDisposition = res.headers["content-disposition"] as string | undefined;
       let filename = files.length === 1 
         ? `Converted_${files[0].name.replace('.docx', '').replace('.doc', '')}.pdf`
-        : "Converted_Word_Documents.pdf";
+        : "Converted_Word_PDFs.zip";
         
       if (contentDisposition) {
         const match = /filename="?([^";]+)"?/.exec(contentDisposition);
@@ -267,10 +279,18 @@ export default function WordToPdf() {
                         <img 
                           src={previews[`${file.name}_${file.size}`]} 
                           alt="First page preview" 
-                          className="w-full h-full object-cover object-top transition-transform duration-200 group-hover:scale-105"
+                          className={`w-full h-full object-cover object-top transition-transform duration-200 group-hover:scale-105 ${
+                            rotations[`${file.name}_${file.size}`] === 90 ? "rotate-90" :
+                            rotations[`${file.name}_${file.size}`] === 180 ? "rotate-180" :
+                            rotations[`${file.name}_${file.size}`] === 270 ? "rotate-270" : ""
+                          }`}
                         />
                       ) : (
-                        <div className="flex flex-col items-center justify-center text-blue-600 transition-transform duration-200 group-hover:scale-105">
+                        <div className={`flex flex-col items-center justify-center text-blue-600 transition-transform duration-200 group-hover:scale-105 ${
+                          rotations[`${file.name}_${file.size}`] === 90 ? "rotate-90" :
+                          rotations[`${file.name}_${file.size}`] === 180 ? "rotate-180" :
+                          rotations[`${file.name}_${file.size}`] === 270 ? "rotate-270" : ""
+                        }`}>
                           <FileIcon className="w-10 h-10 opacity-85" />
                           <span className="text-[8px] uppercase font-black tracking-widest mt-1.5 text-blue-700/80 bg-blue-100/50 px-1.5 py-0.5 rounded">
                             Word Doc
@@ -281,6 +301,18 @@ export default function WordToPdf() {
                       <span className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm z-10">
                         {idx + 1}
                       </span>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRotate(file);
+                        }}
+                        className="absolute bottom-2 right-2 bg-blue-600 hover:bg-blue-700 text-white p-1 rounded-full shadow-md transition hover:scale-110 active:scale-90 z-20 cursor-pointer"
+                        title="Rotate Page"
+                      >
+                        <RotateCw size={10} className="w-2.5 h-2.5" />
+                      </button>
 
                       <button
                         type="button"

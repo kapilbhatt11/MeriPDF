@@ -687,21 +687,28 @@ async def handle_libreoffice_conversion(file: UploadFile, allowed_exts: list[str
 
 # 📄 WORD to PDF (.pdf)
 @router.post("/word-to-pdf")
-async def word_to_pdf(files: list[UploadFile] = File(...)):
+async def word_to_pdf(files: list[UploadFile] = File(...), rotations: list[str] = Form(default=None)):
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
     if len(files) > 50:
         raise HTTPException(status_code=400, detail="Maximum limit of 50 documents exceeded per conversion request.")
     
-    if len(files) == 1:
-        return await handle_libreoffice_conversion(
-            file=files[0], 
-            allowed_exts=[".doc", ".docx"], 
-            err_prefix="Word to PDF", 
-            response_prefix="Converted"
-        )
-    
+    # Parse rotations or pad it to match len(files)
+    rot_list = []
+    if rotations:
+        for r in rotations:
+            try:
+                rot_list.append(int(r))
+            except ValueError:
+                rot_list.append(0)
+            
+    while len(rot_list) < len(files):
+        rot_list.append(0)
+        
     import uuid
+    import tempfile
+    import zipfile
+    
     unique_id = str(uuid.uuid4())
     temp_dir = tempfile.gettempdir()
     
@@ -710,7 +717,7 @@ async def word_to_pdf(files: list[UploadFile] = File(...)):
     
     try:
         # Convert each Word document to a PDF in order
-        for file in files:
+        for idx, file in enumerate(files):
             ext = os.path.splitext(file.filename)[1].lower()
             if ext not in [".doc", ".docx"]:
                 raise HTTPException(
@@ -725,44 +732,59 @@ async def word_to_pdf(files: list[UploadFile] = File(...)):
                 f.write(await file.read())
             
             out_pdf = convert_to_pdf_with_libreoffice(in_path, temp_dir)
+            
+            # Apply rotation if specified and != 0
+            rot = rot_list[idx]
+            if rot in [90, 180, 270]:
+                doc = fitz.open(out_pdf)
+                for page in doc:
+                    page.set_rotation((page.rotation + rot) % 360)
+                doc.save(out_pdf, incremental=True)
+                doc.close()
+                
             temp_pdf_paths.append(out_pdf)
             
-        # Merge all generated PDFs
-        merged_doc = fitz.open()
-        for pdf_path in temp_pdf_paths:
-            doc = fitz.open(pdf_path)
-            merged_doc.insert_pdf(doc)
-            doc.close()
+        # If there is only one file, return it directly
+        if len(files) == 1:
+            for p in temp_in_paths:
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except: pass
             
-        output_filename = f"Merged_Converted_Documents_{unique_id}.pdf"
-        output_path = os.path.join(temp_dir, output_filename)
-        merged_doc.save(output_path)
-        merged_doc.close()
+            filename = f"Converted_{os.path.splitext(files[0].filename)[0]}.pdf"
+            return FileResponse(
+                temp_pdf_paths[0],
+                media_type="application/pdf",
+                filename=filename,
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+            
+        # If there are multiple files, bundle them into a ZIP archive
+        zip_filename = f"Converted_PDF_Documents_{unique_id}.zip"
+        zip_path = os.path.join(temp_dir, zip_filename)
         
-        # Cleanup temporary files
-        for p in temp_in_paths:
-            if os.path.exists(p):
-                try: os.remove(p)
-                except: pass
-        for p in temp_pdf_paths:
+        with zipfile.ZipFile(zip_path, "w") as zip_file:
+            for idx, pdf_path in enumerate(temp_pdf_paths):
+                original_name = files[idx].filename
+                base_name = os.path.splitext(original_name)[0]
+                zip_file.write(pdf_path, arcname=f"{base_name}.pdf")
+                
+        # Clean up temporary PDFs and input files
+        for p in temp_in_paths + temp_pdf_paths:
             if os.path.exists(p):
                 try: os.remove(p)
                 except: pass
                 
         return FileResponse(
-            output_path,
-            media_type="application/pdf",
-            filename="Converted_Word_Documents.pdf",
-            headers={"Content-Disposition": "attachment; filename=Converted_Word_Documents.pdf"}
+            zip_path,
+            media_type="application/zip",
+            filename="Converted_Word_PDFs.zip",
+            headers={"Content-Disposition": "attachment; filename=Converted_Word_PDFs.zip"}
         )
         
     except Exception as e:
         # Cleanup on failure
-        for p in temp_in_paths:
-            if os.path.exists(p):
-                try: os.remove(p)
-                except: pass
-        for p in temp_pdf_paths:
+        for p in temp_in_paths + temp_pdf_paths:
             if os.path.exists(p):
                 try: os.remove(p)
                 except: pass
@@ -771,21 +793,28 @@ async def word_to_pdf(files: list[UploadFile] = File(...)):
 
 # 📊 POWERPOINT to PDF (.pdf)
 @router.post("/ppt-to-pdf")
-async def ppt_to_pdf(files: list[UploadFile] = File(...)):
+async def ppt_to_pdf(files: list[UploadFile] = File(...), rotations: list[str] = Form(default=None)):
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
     if len(files) > 50:
         raise HTTPException(status_code=400, detail="Maximum limit of 50 presentations exceeded per conversion request.")
     
-    if len(files) == 1:
-        return await handle_libreoffice_conversion(
-            file=files[0], 
-            allowed_exts=[".ppt", ".pptx"], 
-            err_prefix="PowerPoint to PDF", 
-            response_prefix="Converted_Presentation"
-        )
-    
+    # Parse rotations or pad it to match len(files)
+    rot_list = []
+    if rotations:
+        for r in rotations:
+            try:
+                rot_list.append(int(r))
+            except ValueError:
+                rot_list.append(0)
+            
+    while len(rot_list) < len(files):
+        rot_list.append(0)
+        
     import uuid
+    import tempfile
+    import zipfile
+    
     unique_id = str(uuid.uuid4())
     temp_dir = tempfile.gettempdir()
     
@@ -794,7 +823,7 @@ async def ppt_to_pdf(files: list[UploadFile] = File(...)):
     
     try:
         # Convert each Presentation slideshow to a PDF in order
-        for file in files:
+        for idx, file in enumerate(files):
             ext = os.path.splitext(file.filename)[1].lower()
             if ext not in [".ppt", ".pptx"]:
                 raise HTTPException(
@@ -809,44 +838,59 @@ async def ppt_to_pdf(files: list[UploadFile] = File(...)):
                 f.write(await file.read())
             
             out_pdf = convert_to_pdf_with_libreoffice(in_path, temp_dir)
+            
+            # Apply rotation if specified and != 0
+            rot = rot_list[idx]
+            if rot in [90, 180, 270]:
+                doc = fitz.open(out_pdf)
+                for page in doc:
+                    page.set_rotation((page.rotation + rot) % 360)
+                doc.save(out_pdf, incremental=True)
+                doc.close()
+                
             temp_pdf_paths.append(out_pdf)
             
-        # Merge all generated PDFs
-        merged_doc = fitz.open()
-        for pdf_path in temp_pdf_paths:
-            doc = fitz.open(pdf_path)
-            merged_doc.insert_pdf(doc)
-            doc.close()
+        # If there is only one file, return it directly
+        if len(files) == 1:
+            for p in temp_in_paths:
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except: pass
             
-        output_filename = f"Merged_Converted_Presentations_{unique_id}.pdf"
-        output_path = os.path.join(temp_dir, output_filename)
-        merged_doc.save(output_path)
-        merged_doc.close()
+            filename = f"Converted_{os.path.splitext(files[0].filename)[0]}.pdf"
+            return FileResponse(
+                temp_pdf_paths[0],
+                media_type="application/pdf",
+                filename=filename,
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+            
+        # If there are multiple files, bundle them into a ZIP archive
+        zip_filename = f"Converted_PDF_Presentations_{unique_id}.zip"
+        zip_path = os.path.join(temp_dir, zip_filename)
         
-        # Cleanup temporary files
-        for p in temp_in_paths:
-            if os.path.exists(p):
-                try: os.remove(p)
-                except: pass
-        for p in temp_pdf_paths:
+        with zipfile.ZipFile(zip_path, "w") as zip_file:
+            for idx, pdf_path in enumerate(temp_pdf_paths):
+                original_name = files[idx].filename
+                base_name = os.path.splitext(original_name)[0]
+                zip_file.write(pdf_path, arcname=f"{base_name}.pdf")
+                
+        # Clean up temporary PDFs and input files
+        for p in temp_in_paths + temp_pdf_paths:
             if os.path.exists(p):
                 try: os.remove(p)
                 except: pass
                 
         return FileResponse(
-            output_path,
-            media_type="application/pdf",
-            filename="Converted_Presentations.pdf",
-            headers={"Content-Disposition": "attachment; filename=Converted_Presentations.pdf"}
+            zip_path,
+            media_type="application/zip",
+            filename="Converted_PowerPoint_PDFs.zip",
+            headers={"Content-Disposition": "attachment; filename=Converted_PowerPoint_PDFs.zip"}
         )
         
     except Exception as e:
         # Cleanup on failure
-        for p in temp_in_paths:
-            if os.path.exists(p):
-                try: os.remove(p)
-                except: pass
-        for p in temp_pdf_paths:
+        for p in temp_in_paths + temp_pdf_paths:
             if os.path.exists(p):
                 try: os.remove(p)
                 except: pass
