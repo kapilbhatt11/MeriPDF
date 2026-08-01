@@ -14,6 +14,7 @@ export default function WordToPdf() {
   const [showHelp, setShowHelp] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,84 +189,113 @@ export default function WordToPdf() {
           <input ref={inputRef} type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" multiple onChange={handleFileChange} />
         </div>
 
-        <div className="bg-white border rounded-xl shadow p-8 flex flex-col justify-start">
+        <div className="bg-white border rounded-xl shadow p-8 flex flex-col justify-start animate-fade-in" onClick={() => setActiveCardIndex(null)}>
           <h2 className="text-2xl font-bold mb-4 text-gray-800 border-b pb-4">Selected Documents</h2>
           {files.length === 0 ? (
              <div className="flex flex-col items-center justify-center text-gray-400 py-10">
-               <FileIcon size={40} className="mb-3 opacity-20" />
+               <FileIcon size={40} className="mb-3 opacity-20 animate-pulse" />
                <p className="text-sm">No files selected yet.</p>
              </div>
           ) : (
-            <div className="flex-grow overflow-y-auto max-h-[300px] pr-2 space-y-3 mb-6 custom-scrollbar">
-              <p className="text-xs text-blue-500 font-bold mb-2">
-                💡 Drag documents to rearrange sequence, or use arrows (▲ / ▼) to sort.
+            <div className="flex-grow overflow-y-auto max-h-[380px] pr-2 mb-6 custom-scrollbar" onClick={() => setActiveCardIndex(null)}>
+              <p className="text-xs text-blue-500 font-bold mb-3">
+                💡 Drag cards to rearrange order, or use arrows (◀ / ▶) to sort on mobile.
               </p>
-              {files.map((file, idx) => (
-                <div
-                  key={idx}
-                  draggable
-                  onDragStart={() => setDraggedIndex(idx)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDragEnd={() => setDraggedIndex(null)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (draggedIndex === null || draggedIndex === idx) return;
-                    const reordered = [...files];
-                    const [moved] = reordered.splice(draggedIndex, 1);
-                    reordered.splice(idx, 0, moved);
-                    setFiles(reordered);
-                    setDraggedIndex(null);
-                    setDownloadUrl(null);
-                  }}
-                  className={`flex items-center justify-between bg-slate-50 border border-slate-200 p-3.5 rounded-xl shadow-sm hover:border-blue-400 transition group select-none ${
-                    draggedIndex === idx ? "opacity-30" : ""
-                  }`}
-                >
-                  <div className="flex items-center gap-3 overflow-hidden cursor-grab">
-                    <span className="bg-blue-600 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    <div className="bg-blue-100 text-blue-700 p-2 rounded flex-shrink-0">
-                      <FileIcon size={20} />
-                    </div>
-                    <div className="flex flex-col truncate">
-                      <span className="font-semibold text-sm text-gray-800 truncate" title={file.name}>{file.name}</span>
-                      <span className="text-[10px] text-gray-505 text-gray-500 uppercase font-semibold">{(file.size / 1024).toFixed(1)} KB</span>
-                    </div>
-                  </div>
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {files.map((file, idx) => (
+                  <div
+                    key={idx}
+                    draggable
+                    onDragStart={() => setDraggedIndex(idx)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnd={() => setDraggedIndex(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedIndex === null || draggedIndex === idx) return;
+                      const reordered = [...files];
+                      const [moved] = reordered.splice(draggedIndex, 1);
+                      reordered.splice(idx, 0, moved);
+                      setFiles(reordered);
+                      setDraggedIndex(null);
+                      setDownloadUrl(null);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveCardIndex(idx);
+                    }}
+                    className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition-all duration-300 group shadow-sm select-none hover:border-blue-400 hover:shadow-md cursor-pointer ${
+                      draggedIndex === idx ? "opacity-30" : ""
+                    } ${
+                      activeCardIndex === idx
+                        ? "ring-2 ring-blue-500 bg-blue-50/10 scale-102 z-10 shadow-lg col-span-2 sm:col-span-2 lg:col-span-1"
+                        : "border-slate-200"
+                    }`}
+                  >
+                    <div className="w-full aspect-[4/3] bg-gradient-to-tr from-blue-50 to-indigo-50/60 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200 relative group cursor-grab">
+                      <div className="flex flex-col items-center justify-center text-blue-600 transition-transform duration-200 group-hover:scale-105">
+                        <FileIcon className="w-10 h-10 opacity-85" />
+                        <span className="text-[8px] uppercase font-black tracking-widest mt-1.5 text-blue-700/80 bg-blue-100/50 px-1.5 py-0.5 rounded">
+                          Word Doc
+                        </span>
+                      </div>
+                      
+                      <span className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm z-10">
+                        {idx + 1}
+                      </span>
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => moveFile(idx, "up")}
-                        disabled={idx === 0}
-                        className="p-1 bg-white border border-slate-200 text-slate-600 hover:text-blue-705 hover:text-blue-700 rounded-lg hover:border-blue-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                        title="Move Up"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFile(idx);
+                        }}
+                        className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-full shadow-md transition hover:scale-110 active:scale-90 z-20 cursor-pointer"
+                        title="Remove Document"
                       >
-                        <span className="text-[10px] font-black font-mono">▲</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveFile(idx, "down")}
-                        disabled={idx === files.length - 1}
-                        className="p-1 bg-white border border-slate-200 text-slate-600 hover:text-blue-705 hover:text-blue-700 rounded-lg hover:border-blue-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-                        title="Move Down"
-                      >
-                        <span className="text-[10px] font-black font-mono">▼</span>
+                        <X size={10} className="w-2.5 h-2.5" />
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => removeFile(idx)}
-                      className="text-gray-400 hover:text-red-500 p-1.5 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-rose-50 transition cursor-pointer"
-                      title="Remove"
-                    >
-                      <X size={15} />
-                    </button>
+                    <div className="flex flex-col gap-1 overflow-hidden">
+                      <span className="font-bold text-[11px] text-slate-700 truncate block px-1" title={file.name}>
+                        {file.name}
+                      </span>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </span>
+
+                      <div className="flex items-center justify-center border-t border-slate-200/85 pt-2 mt-1">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              moveFile(idx, "up");
+                            }}
+                            disabled={idx === 0}
+                            className="p-1 px-3 bg-white border border-slate-200 text-slate-650 hover:text-blue-600 rounded-lg hover:border-blue-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                            title="Move Left"
+                          >
+                            <span className="text-[10px] font-bold leading-none">◀</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              moveFile(idx, "down");
+                            }}
+                            disabled={idx === files.length - 1}
+                            className="p-1 px-3 bg-white border border-slate-200 text-slate-650 hover:text-blue-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                            title="Move Right"
+                          >
+                            <span className="text-[10px] font-bold leading-none">▶</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 

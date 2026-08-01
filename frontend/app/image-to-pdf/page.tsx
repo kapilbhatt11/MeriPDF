@@ -21,6 +21,9 @@ export default function ImageToPDF() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
+  const [pageSize, setPageSize] = useState<string>("fit");
+  const [orientation, setOrientation] = useState<string>("auto");
+  const [margin, setMargin] = useState<string>("none");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Image Editor Canvas States & Refs
@@ -552,6 +555,9 @@ export default function ImageToPDF() {
     files.forEach(item => {
       formData.append("files", item.file);
     });
+    formData.append("page_size", pageSize);
+    formData.append("orientation", orientation);
+    formData.append("margin", margin);
 
     try {
       const res = await axios.post(
@@ -801,6 +807,62 @@ export default function ImageToPDF() {
           )}
 
           <div className="mt-auto space-y-4 pt-4 border-t">
+            {files.length > 0 && (
+              <div 
+                className="bg-slate-50 p-3.5 rounded-xl border border-slate-205 mt-2 space-y-3 cursor-default"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b pb-1.5">
+                  <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    📄 PDF Formatting Settings
+                  </span>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1 text-left">
+                    <label className="text-[9px] font-bold text-slate-500 block">Page Size</label>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => setPageSize(e.target.value)}
+                      className="w-full text-xs bg-white border border-slate-300 p-1.5 rounded-lg font-medium text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="fit">Fit Image</option>
+                      <option value="a4">A4 Sheet</option>
+                      <option value="letter">US Letter</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-1 text-left">
+                    <label className="text-[9px] font-bold text-slate-500 block">Orientation</label>
+                    <select
+                      value={orientation}
+                      onChange={(e) => setOrientation(e.target.value)}
+                      disabled={pageSize === "fit"}
+                      className="w-full text-xs bg-white border border-slate-300 p-1.5 rounded-lg font-medium text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <option value="auto">Auto Orient</option>
+                      <option value="portrait">Portrait</option>
+                      <option value="landscape">Landscape</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-1 text-left">
+                    <label className="text-[9px] font-bold text-slate-500 block">Margins</label>
+                    <select
+                      value={margin}
+                      onChange={(e) => setMargin(e.target.value)}
+                      disabled={pageSize === "fit"}
+                      className="w-full text-xs bg-white border border-slate-300 p-1.5 rounded-lg font-medium text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <option value="none">No Margin</option>
+                      <option value="small">Small</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button
               onClick={handleConvert}
               disabled={loading || files.length === 0}

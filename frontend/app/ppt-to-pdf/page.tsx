@@ -7,34 +7,101 @@ import { optionalAuthHeaders } from "@/lib/auth";
 import { logPDFOperation } from "@/lib/analytics";
 
 export default function PptToPdf() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [downloadName, setDownloadName] = useState<string>("Converted_Presentation.pdf");
+  const [downloadName, setDownloadName] = useState<string>("Converted_Presentations.pdf");
   const [showHelp, setShowHelp] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [activeCardIndex, setActiveCardIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newFile = e.target.files[0];
-      const ext = newFile.name.split('.').pop()?.toLowerCase();
-      if (ext !== 'pptx' && ext !== 'ppt') {
-        alert("Only PowerPoint documents (.ppt, .pptx) are allowed.");
+      const newFiles = Array.from(e.target.files);
+      const validSlides = newFiles.filter(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase();
+        return ext === 'pptx' || ext === 'ppt';
+      });
+      
+      if (validSlides.length !== newFiles.length) {
+        alert("Some files were discarded. Only PowerPoint documents (.ppt, .pptx) are allowed.");
+      }
+      
+      const maxLimitVal = 50;
+      if (files.length + validSlides.length > maxLimitVal) {
+        alert(`Maximum limit of ${maxLimitVal} presentations reached. You can only convert up to ${maxLimitVal} files at a time.`);
         return;
       }
-      setFile(newFile);
+      
+      setFiles(prev => [...prev, ...validSlides]);
       setDownloadUrl(null);
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const newFiles = Array.from(e.dataTransfer.files);
+      const validSlides = newFiles.filter(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase();
+        return ext === 'pptx' || ext === 'ppt';
+      });
+      
+      if (validSlides.length !== newFiles.length) {
+        alert("Some files were discarded. Only PowerPoint documents (.ppt, .pptx) are allowed.");
+      }
+      
+      const maxLimitVal = 50;
+      if (files.length + validSlides.length > maxLimitVal) {
+        alert(`Maximum limit of ${maxLimitVal} presentations reached. You can only convert up to ${maxLimitVal} files at a time.`);
+        return;
+      }
+      
+      setFiles(prev => [...prev, ...validSlides]);
+      setDownloadUrl(null);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+    setDownloadUrl(null);
+  };
+
+  const moveFile = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === files.length - 1) return;
+
+    const nextIndex = direction === "up" ? index - 1 : index + 1;
+    const reordered = [...files];
+    const temp = reordered[index];
+    reordered[index] = reordered[nextIndex];
+    reordered[nextIndex] = temp;
+    setFiles(reordered);
+    setDownloadUrl(null);
+  };
+
   const handleConvert = async () => {
-    if (!file) return alert("Select a PowerPoint file first");
+    if (files.length === 0) return alert("Select at least one PowerPoint presentation first");
 
     setLoading(true);
     setDownloadUrl(null);
 
     const formData = new FormData();
-    formData.append("file", file);
+    files.forEach(file => {
+      formData.append("files", file);
+    });
 
     try {
       const res = await axios.post(
@@ -47,7 +114,10 @@ export default function PptToPdf() {
       );
 
       const contentDisposition = res.headers["content-disposition"] as string | undefined;
-      let filename = `Converted_${file.name.replace('.pptx', '').replace('.ppt', '')}.pdf`;
+      let filename = files.length === 1 
+        ? `Converted_${files[0].name.replace('.pptx', '').replace('.ppt', '')}.pdf`
+        : "Converted_Presentations.pdf";
+        
       if (contentDisposition) {
         const match = /filename="?([^";]+)"?/.exec(contentDisposition);
         if (match && match[1]) {
@@ -58,7 +128,7 @@ export default function PptToPdf() {
       const url = URL.createObjectURL(new Blob([res.data]));
       setDownloadUrl(url);
       setDownloadName(filename);
-      logPDFOperation("PowerPoint to PDF", 1);
+      logPDFOperation("PowerPoint to PDF", files.length || 1);
     } catch (e: unknown) {
       if (axios.isAxiosError(e) && e.response?.data instanceof Blob) {
         try {
@@ -74,7 +144,7 @@ export default function PptToPdf() {
           }
         } catch {}
       }
-      alert("Conversion failed. Please try again or use a valid PowerPoint presentation.");
+      alert("Conversion failed. Please try again or check if you uploaded valid PowerPoint presentations.");
     } finally {
       setLoading(false);
     }
@@ -82,6 +152,7 @@ export default function PptToPdf() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 relative">
+      {/* Top Banner */}
       <div className="bg-gradient-to-r from-orange-600 to-red-700 rounded-2xl p-6 mb-8 shadow-lg flex flex-col md:flex-row justify-between items-center gap-4 text-white">
         <h1 className="text-3xl font-bold flex items-center gap-3">
           <div className="bg-white/20 p-2 rounded-lg">
@@ -98,44 +169,141 @@ export default function PptToPdf() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
-        <div className="bg-orange-50/50 border-2 border-dashed border-orange-400 rounded-xl p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
+        {/* LEFT : UPLOAD PANEL */}
+        <div 
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition min-h-[300px] ${
+            isDragOver 
+              ? "bg-orange-100 border-orange-500 scale-[1.01]" 
+              : "bg-orange-50/50 border-orange-400 hover:bg-orange-100/50 hover:border-orange-500"
+          }`}
+        >
           <div className="bg-white p-4 rounded-full shadow mb-4">
             <UploadCloud className="w-12 h-12 text-orange-600" />
           </div>
           <h3 className="text-xl font-bold text-gray-700 mb-2">Upload POWERPOINT</h3>
-          <p className="text-gray-500 mb-6 text-sm">Select .pptx or .ppt file.</p>
-          <button onClick={() => inputRef.current?.click()} className="bg-orange-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-orange-700 shadow-md flex items-center gap-2 transition transform hover:scale-105 active:scale-95">
+          <p className="text-gray-500 mb-6 text-sm">Select .pptx or .ppt files to convert.</p>
+          <button onClick={() => inputRef.current?.click()} className="bg-orange-655 bg-orange-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-orange-700 shadow-md flex items-center gap-2 transition transform hover:scale-105 active:scale-95">
             <Plus size={20} /> Select File
           </button>
-          <input ref={inputRef} type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="hidden" onChange={handleFileChange} />
+          <input ref={inputRef} type="file" multiple accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="hidden" onChange={handleFileChange} />
         </div>
 
-        <div className="bg-white border rounded-xl shadow p-8 flex flex-col justify-start">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800 border-b pb-4">Selected File</h2>
-          {!file ? (
+        {/* RIGHT : PREMIUM GRID DECK CARDS */}
+        <div className="bg-white border rounded-xl shadow p-8 flex flex-col justify-start animate-fade-in" onClick={() => setActiveCardIndex(null)}>
+          <h2 className="text-2xl font-bold mb-4 text-gray-800 border-b pb-4">Selected PowerPoint Slides</h2>
+          {files.length === 0 ? (
              <div className="flex flex-col items-center justify-center text-gray-400 py-10">
-               <FileIcon size={40} className="mb-3 opacity-20" />
-               <p className="text-sm">No presentation selected yet.</p>
+               <Presentation size={40} className="mb-3 opacity-20 animate-pulse" />
+               <p className="text-sm">No presentation files selected yet.</p>
              </div>
           ) : (
-            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 p-4 rounded-lg shadow-sm hover:border-orange-400 transition group mb-6">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className="bg-orange-100 text-orange-600 p-2 rounded flex-shrink-0">
-                  <Presentation size={20} />
-                </div>
-                <div className="flex flex-col truncate">
-                  <span className="font-semibold text-sm text-gray-800 truncate">{file.name}</span>
-                  <span className="text-[10px] text-gray-500 uppercase">{(file.size / 1024).toFixed(1)} KB</span>
-                </div>
+            <div className="flex-grow overflow-y-auto max-h-[380px] pr-2 mb-6 custom-scrollbar" onClick={() => setActiveCardIndex(null)}>
+              <p className="text-xs text-orange-600 font-bold mb-3">
+                💡 Drag cards to rearrange order, or use arrows (◀ / ▶) to sort on mobile.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {files.map((file, idx) => (
+                  <div
+                    key={idx}
+                    draggable
+                    onDragStart={() => setDraggedIndex(idx)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnd={() => setDraggedIndex(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedIndex === null || draggedIndex === idx) return;
+                      const reordered = [...files];
+                      const [moved] = reordered.splice(draggedIndex, 1);
+                      reordered.splice(idx, 0, moved);
+                      setFiles(reordered);
+                      setDraggedIndex(null);
+                      setDownloadUrl(null);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveCardIndex(idx);
+                    }}
+                    className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition-all duration-300 group shadow-sm select-none hover:border-orange-400 hover:shadow-md cursor-pointer ${
+                      draggedIndex === idx ? "opacity-30" : ""
+                    } ${
+                      activeCardIndex === idx
+                        ? "ring-2 ring-orange-500 bg-orange-50/10 scale-102 z-10 shadow-lg col-span-2 sm:col-span-2 lg:col-span-1"
+                        : "border-slate-200"
+                    }`}
+                  >
+                    <div className="w-full aspect-[4/3] bg-gradient-to-tr from-orange-50 to-red-50/40 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200 relative group cursor-grab">
+                      <div className="flex flex-col items-center justify-center text-orange-655 text-orange-600 transition-transform duration-200 group-hover:scale-105">
+                        <Presentation className="w-10 h-10 opacity-85" />
+                        <span className="text-[8px] uppercase font-black tracking-widest mt-1.5 text-orange-700/80 bg-orange-100/50 px-1.5 py-0.5 rounded">
+                          Slideshow
+                        </span>
+                      </div>
+                      
+                      <span className="absolute top-2 left-2 bg-orange-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-sm z-10">
+                        {idx + 1}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFile(idx);
+                        }}
+                        className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-full shadow-md transition hover:scale-110 active:scale-90 z-20 cursor-pointer"
+                        title="Remove Slide"
+                      >
+                        <X size={10} className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1 overflow-hidden">
+                      <span className="font-bold text-[11px] text-slate-700 truncate block px-1" title={file.name}>
+                        {file.name}
+                      </span>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </span>
+
+                      <div className="flex items-center justify-center border-t border-slate-200/85 pt-2 mt-1">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              moveFile(idx, "up");
+                            }}
+                            disabled={idx === 0}
+                            className="p-1 px-3 bg-white border border-slate-200 text-slate-650 hover:text-orange-600 rounded-lg hover:border-orange-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                            title="Move Left"
+                          >
+                            <span className="text-[10px] font-bold leading-none">◀</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              moveFile(idx, "down");
+                            }}
+                            disabled={idx === files.length - 1}
+                            className="p-1 px-3 bg-white border border-slate-200 text-slate-650 hover:text-orange-600 rounded-lg hover:border-orange-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                            title="Move Right"
+                          >
+                            <span className="text-[10px] font-bold leading-none">▶</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <button onClick={() => {setFile(null); setDownloadUrl(null);}} className="text-gray-400 hover:text-red-500 p-1.5 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-red-50 transition">
-                <X size={16} />
-              </button>
             </div>
           )}
 
           <div className="mt-auto space-y-4 border-t pt-4">
-            <button onClick={handleConvert} disabled={loading || !file} className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold hover:bg-orange-700 disabled:opacity-50 transition shadow-lg flex justify-center items-center gap-2 text-lg">
+            <button onClick={handleConvert} disabled={loading || files.length === 0} className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold hover:bg-orange-700 disabled:opacity-50 transition shadow-lg flex justify-center items-center gap-2 text-lg">
               {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Presentation className="w-5 h-5" />}
               {loading ? "Converting..." : "Convert to PDF"}
             </button>
@@ -156,24 +324,24 @@ export default function PptToPdf() {
           <div className="bg-white p-8 rounded-2xl shadow-2xl text-left w-full max-w-lg relative" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 bg-gray-100 p-2 rounded-full"><X size={20} /></button>
             <h2 className="text-2xl font-bold mb-6 text-gray-800 flex items-center gap-3">
-              <HelpCircle className="text-orange-600" /> 
+              <HelpCircle className="text-orange-655 text-orange-600" /> 
               How to use PowerPoint to PDF
             </h2>
             <div className="space-y-5 text-gray-600">
               <div className="flex items-start gap-4">
                 <div className="bg-orange-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold flex-shrink-0">1</div>
-                <p className="pt-1">Click on <strong>"Select File"</strong> to upload your PowerPoint slideshow (.pptx or .ppt).</p>
+                <p className="pt-1">Click on <strong>"Select File"</strong> to upload PowerPoint presentations (.pptx or .ppt).</p>
               </div>
               <div className="flex items-start gap-4">
                 <div className="bg-orange-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold flex-shrink-0">2</div>
-                <p className="pt-1">Verify the file name and click <strong>"Convert to PDF"</strong>.</p>
+                <p className="pt-1">Rearrange presentation order if converting multiple files simultaneously.</p>
               </div>
               <div className="flex items-start gap-4">
                 <div className="bg-orange-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold flex-shrink-0">3</div>
-                <p className="pt-1">Once processing is complete, your <strong>PDF</strong> will be ready for download instantly.</p>
+                <p className="pt-1">Click <strong>"Convert to PDF"</strong> to download the merged PDF instantly.</p>
               </div>
             </div>
-            <button onClick={() => setShowHelp(false)} className="mt-8 w-full bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-750 transition shadow-lg">Start Converting Now</button>
+            <button onClick={() => setShowHelp(false)} className="mt-8 w-full bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700 transition shadow-lg">Start Converting Now</button>
           </div>
         </div>
       )}

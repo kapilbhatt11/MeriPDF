@@ -26,8 +26,74 @@ import pytesseract
 
 router = APIRouter(prefix="/converters", tags=["converters"])
 
+# Helper to process image fitting onto canvas
+def format_image_for_pdf(img: Image.Image, page_size: str, orientation: str, margin: str) -> Image.Image:
+    # 1. If page_size is fit, keep original image size
+    if page_size == "fit":
+        return img
+    
+    # 2. Base page dimensions in points
+    # A4: 595 x 842, Letter: 612 x 792
+    if page_size == "a4":
+        p_w, p_h = 595, 842
+    elif page_size == "letter":
+        p_w, p_h = 612, 792
+    else:
+        p_w, p_h = 595, 842  # default fallback A4
+        
+    # Rotate based on orientation
+    img_w, img_h = img.size
+    
+    if orientation == "portrait":
+        sw, sh = min(p_w, p_h), max(p_w, p_h)
+    elif orientation == "landscape":
+        sw, sh = max(p_w, p_h), min(p_w, p_h)
+    else: # auto
+        if img_w > img_h:
+            sw, sh = max(p_w, p_h), min(p_w, p_h)
+        else:
+            sw, sh = min(p_w, p_h), max(p_w, p_h)
+            
+    # Margins in points
+    pad = 0
+    if margin == "small":
+        pad = 20
+    elif margin == "large":
+        pad = 40
+        
+    aw = sw - 2 * pad
+    ah = sh - 2 * pad
+    
+    # Scale image to fit inside available boundaries preserving aspect ratio
+    scale = min(aw / img_w, ah / img_h)
+    new_w = max(1, int(img_w * scale))
+    new_h = max(1, int(img_h * scale))
+    
+    # Resize the image using High Quality Resampling
+    try:
+        sampler = Image.Resampling.LANCZOS
+    except AttributeError:
+        sampler = Image.ANTIALIAS
+        
+    resized_img = img.resize((new_w, new_h), sampler)
+    
+    # Create white canvas of (sw, sh)
+    canvas = Image.new("RGB", (sw, sh), (255, 255, 255))
+    
+    # Paste centered
+    x_off = pad + (aw - new_w) // 2
+    y_off = pad + (ah - new_h) // 2
+    canvas.paste(resized_img, (x_off, y_off))
+    
+    return canvas
+
 @router.post("/image-to-pdf")
-async def image_to_pdf(files: list[UploadFile] = File(...)):
+async def image_to_pdf(
+    files: list[UploadFile] = File(...),
+    page_size: str = Form("fit"),
+    orientation: str = Form("auto"),
+    margin: str = Form("none")
+):
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
     if len(files) > 50:
@@ -35,8 +101,6 @@ async def image_to_pdf(files: list[UploadFile] = File(...)):
     
     try:
         images_list = []
-        first_image = None
-        
         for file in files:
             content = await file.read()
             img = Image.open(io.BytesIO(content))
@@ -45,12 +109,10 @@ async def image_to_pdf(files: list[UploadFile] = File(...)):
             if img.mode != 'RGB':
                 img = img.convert('RGB')
             
-            if first_image is None:
-                first_image = img
-            else:
-                images_list.append(img)
+            processed_img = format_image_for_pdf(img, page_size, orientation, margin)
+            images_list.append(processed_img)
                 
-        if not first_image:
+        if not images_list:
             raise HTTPException(status_code=400, detail="Invalid image files provided")
             
         temp_dir = tempfile.gettempdir()
@@ -58,8 +120,11 @@ async def image_to_pdf(files: list[UploadFile] = File(...)):
         output_path = os.path.join(temp_dir, output_filename)
         
         # Save all images as a single PDF
-        if images_list:
-            first_image.save(output_path, "PDF", resolution=100.0, save_all=True, append_images=images_list)
+        first_image = images_list[0]
+        other_images = images_list[1:]
+        
+        if other_images:
+            first_image.save(output_path, "PDF", resolution=100.0, save_all=True, append_images=other_images)
         else:
             first_image.save(output_path, "PDF", resolution=100.0)
             
@@ -706,13 +771,87 @@ async def word_to_pdf(files: list[UploadFile] = File(...)):
 
 # 📊 POWERPOINT to PDF (.pdf)
 @router.post("/ppt-to-pdf")
-async def ppt_to_pdf(file: UploadFile = File(...)):
-    return await handle_libreoffice_conversion(
-        file=file, 
-        allowed_exts=[".ppt", ".pptx"], 
-        err_prefix="PowerPoint to PDF", 
-        response_prefix="Converted_Presentation"
-    )
+async def ppt_to_pdf(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > 50:
+        raise HTTPException(status_code=400, detail="Maximum limit of 50 presentations exceeded per conversion request.")
+    
+    if len(files) == 1:
+        return await handle_libreoffice_conversion(
+            file=files[0], 
+            allowed_exts=[".ppt", ".pptx"], 
+            err_prefix="PowerPoint to PDF", 
+            response_prefix="Converted_Presentation"
+        )
+    
+    import uuid
+    unique_id = str(uuid.uuid4())
+    temp_dir = tempfile.gettempdir()
+    
+    temp_pdf_paths = []
+    temp_in_paths = []
+    
+    try:
+        # Convert each Presentation slideshow to a PDF in order
+        for file in files:
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in [".ppt", ".pptx"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid file extension: {file.filename}. Only .ppt and .pptx are allowed."
+                )
+            
+            in_path = os.path.join(temp_dir, f"in_{uuid.uuid4()}{ext}")
+            temp_in_paths.append(in_path)
+            
+            with open(in_path, "wb") as f:
+                f.write(await file.read())
+            
+            out_pdf = convert_to_pdf_with_libreoffice(in_path, temp_dir)
+            temp_pdf_paths.append(out_pdf)
+            
+        # Merge all generated PDFs
+        merged_doc = fitz.open()
+        for pdf_path in temp_pdf_paths:
+            doc = fitz.open(pdf_path)
+            merged_doc.insert_pdf(doc)
+            doc.close()
+            
+        output_filename = f"Merged_Converted_Presentations_{unique_id}.pdf"
+        output_path = os.path.join(temp_dir, output_filename)
+        merged_doc.save(output_path)
+        merged_doc.close()
+        
+        # Cleanup temporary files
+        for p in temp_in_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+        for p in temp_pdf_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+                
+        return FileResponse(
+            output_path,
+            media_type="application/pdf",
+            filename="Converted_Presentations.pdf",
+            headers={"Content-Disposition": "attachment; filename=Converted_Presentations.pdf"}
+        )
+        
+    except Exception as e:
+        # Cleanup on failure
+        for p in temp_in_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+        for p in temp_pdf_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+        print("Batch PowerPoint to PDF Error:", e)
+        raise HTTPException(status_code=500, detail=f"Failed to convert PowerPoint files to PDF: {str(e)}")
 
 # 📈 EXCEL to PDF (.pdf)
 @router.post("/excel-to-pdf")
