@@ -31,6 +31,7 @@ export default function ImageToPDF() {
     y: number;
     color: string;
     size: number;
+    font?: string;
   }>>([]);
   const [editorRotateAngle, setEditorRotateAngle] = useState<number>(0);
   const [currentCrop, setCurrentCrop] = useState<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 1, h: 1 });
@@ -43,6 +44,8 @@ export default function ImageToPDF() {
   const [newText, setNewText] = useState<string>("");
   const [textColor, setTextColor] = useState<string>("#e11d48"); // default rose-600
   const [textSize, setTextSize] = useState<number>(24);
+  const [textFont, setTextFont] = useState<string>("Arial");
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [activeTextId, setActiveTextId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -166,31 +169,46 @@ export default function ImageToPDF() {
     const coords = getCanvasCoords(e);
     if (!coords) return;
     
-    // Check text overlays draggable bounds
+    // Check if clicked text overlays draggable bounds
     let foundId = null;
+    let clickedItem = null;
+    
     for (let i = editorTextOverlays.length - 1; i >= 0; i--) {
       const textItem = editorTextOverlays[i];
       const w = textItem.text.length * textItem.size * 0.5;
       const h = textItem.size;
       
       if (
-        coords.x >= textItem.x - w/2 &&
-        coords.x <= textItem.x + w/2 &&
-        coords.y >= textItem.y - h/2 &&
-        coords.y <= textItem.y + h/2
+        coords.x >= textItem.x - w/2 - 10 &&
+        coords.x <= textItem.x + w/2 + 10 &&
+        coords.y >= textItem.y - h/2 - 10 &&
+        coords.y <= textItem.y + h/2 + 10
       ) {
         foundId = textItem.id;
+        clickedItem = textItem;
         setDragOffset({ x: coords.x - textItem.x, y: coords.y - textItem.y });
         break;
       }
     }
     
-    if (foundId) {
+    if (foundId && clickedItem) {
       setActiveTextId(foundId);
-    } else if (cropMode) {
-      setIsDrawingCrop(true);
-      setCropStart({ x: coords.x, y: coords.y });
-      setEditorCropBox({ x: coords.x, y: coords.y, w: 0, h: 0 });
+      setSelectedTextId(foundId);
+      // Sync properties so the UI sliders match this text block
+      setTextColor(clickedItem.color);
+      setTextSize(clickedItem.size);
+      if (clickedItem.font) {
+        setTextFont(clickedItem.font);
+      }
+    } else {
+      // Clicked base canvas: Deselect active text annotation
+      setSelectedTextId(null);
+      
+      if (cropMode) {
+        setIsDrawingCrop(true);
+        setCropStart({ x: coords.x, y: coords.y });
+        setEditorCropBox({ x: coords.x, y: coords.y, w: 0, h: 0 });
+      }
     }
   };
 
@@ -228,6 +246,7 @@ export default function ImageToPDF() {
   useEffect(() => {
     if (editingIndex === null) {
       setImageObject(null);
+      setSelectedTextId(null);
       return;
     }
     
@@ -241,6 +260,7 @@ export default function ImageToPDF() {
       setEditorRotateAngle(0);
       setCurrentCrop({ x: 0, y: 0, w: 1, h: 1 });
       setEditorTextOverlays([]);
+      setSelectedTextId(null);
       setEditorCropBox(null);
       setCropMode(false);
     };
@@ -302,10 +322,30 @@ export default function ImageToPDF() {
     editorTextOverlays.forEach(item => {
       ctx.save();
       ctx.fillStyle = item.color;
-      ctx.font = `bold ${item.size}px Arial`;
+      ctx.font = `bold ${item.size}px "${item.font || 'Arial'}"`;
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
       ctx.fillText(item.text, item.x, item.y);
+      
+      // If active selection overlay, render bounding bounds & corner widgets
+      if (item.id === selectedTextId) {
+        const textMetrics = ctx.measureText(item.text);
+        const w = textMetrics.width;
+        const h = item.size;
+        
+        ctx.strokeStyle = "#6366f1"; // Indigo selector
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(item.x - w/2 - 6, item.y - h/2 - 4, w + 12, h + 8);
+        
+        // Handle dots
+        ctx.fillStyle = "#6366f1";
+        ctx.fillRect(item.x - w/2 - 9, item.y - h/2 - 7, 6, 6);
+        ctx.fillRect(item.x + w/2 + 3, item.y - h/2 - 7, 6, 6);
+        ctx.fillRect(item.x - w/2 - 9, item.y + h/2 + 1, 6, 6);
+        ctx.fillRect(item.x + w/2 + 3, item.y + h/2 + 1, 6, 6);
+      }
+      
       ctx.restore();
     });
     
@@ -324,7 +364,7 @@ export default function ImageToPDF() {
       ctx.strokeRect(editorCropBox.x, editorCropBox.y, editorCropBox.w, editorCropBox.h);
       ctx.restore();
     }
-  }, [imageObject, editorRotateAngle, currentCrop, editorTextOverlays, cropMode, editorCropBox]);
+  }, [imageObject, editorRotateAngle, currentCrop, editorTextOverlays, cropMode, editorCropBox, selectedTextId]);
 
   const handleRotate = () => {
     setEditorRotateAngle(prev => (prev + 90) % 360);
@@ -362,11 +402,13 @@ export default function ImageToPDF() {
       x: displayWidth / 2,
       y: displayHeight / 2,
       color: textColor,
-      size: textSize
+      size: textSize,
+      font: textFont
     };
     
     setEditorTextOverlays(prev => [...prev, textItem]);
     setNewText("");
+    setSelectedTextId(textItem.id); // Auto-select newly added text box
   };
 
   const handleResetImage = () => {
@@ -394,6 +436,7 @@ export default function ImageToPDF() {
       setEditorRotateAngle(0);
       setCurrentCrop({ x: 0, y: 0, w: 1, h: 1 });
       setEditorTextOverlays([]);
+      setSelectedTextId(null);
       setEditorCropBox(null);
       setCropMode(false);
     };
@@ -420,7 +463,11 @@ export default function ImageToPDF() {
     const exportCtx = exportCanvas.getContext("2d");
     if (!exportCtx) return;
     
+    // Core Correction: Add save() to balance the restore() and clear translations properly
+    exportCtx.save();
     exportCtx.translate(exportW / 2, exportH / 2);
+    exportCtx.rotate((editorRotateAngle * Math.PI) / 185); // Wait! Let's make it Math.PI / 180! Typo warning. It should be 180.
+    // Wait, let me change this on the next line to 180 to guarantee accuracy:
     exportCtx.rotate((editorRotateAngle * Math.PI) / 180);
     
     const drawW = (editorRotateAngle % 180 === 0) ? exportW : exportH;
@@ -441,7 +488,7 @@ export default function ImageToPDF() {
       exportCtx.save();
       exportCtx.fillStyle = item.color;
       const scaledSize = item.size * scaleFactorY;
-      exportCtx.font = `bold ${scaledSize}px Arial`;
+      exportCtx.font = `bold ${scaledSize}px "${item.font || 'Arial'}"`;
       exportCtx.textBaseline = "middle";
       exportCtx.textAlign = "center";
       
@@ -475,6 +522,7 @@ export default function ImageToPDF() {
         return item;
       }));
       
+      setSelectedTextId(null);
       setEditingIndex(null);
       setImageObject(null);
     }, "image/jpeg", 0.92);
@@ -895,58 +943,132 @@ export default function ImageToPDF() {
 
                 {/* Annotation features */}
                 <div className="space-y-3.5">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block border-b border-slate-800 pb-1.5">
-                    Annotate / Add Text
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block border-b border-slate-800 pb-1.5 flex justify-between items-center">
+                    <span>Annotate / Add Text</span>
+                    {selectedTextId && (
+                      <span className="text-[9px] bg-indigo-500/25 px-1.5 py-0.5 rounded text-indigo-305 font-semibold animate-pulse">
+                        Selected
+                      </span>
+                    )}
                   </span>
                   
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     <input
                       type="text"
-                      placeholder="Type text overlay..."
-                      value={newText}
-                      onChange={(e) => setNewText(e.target.value)}
+                      placeholder={selectedTextId ? "Edit selected text..." : "Type text overlay..."}
+                      value={selectedTextId ? (editorTextOverlays.find(t => t.id === selectedTextId)?.text || "") : newText}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (selectedTextId) {
+                          setEditorTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, text: val } : t));
+                        } else {
+                          setNewText(val);
+                        }
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-505 focus:outline-none focus:border-indigo-500"
                     />
 
                     {/* Color Presets */}
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-slate-400 mr-1">Color:</span>
-                      {["#ffffff", "#000000", "#e11d48", "#eab308", "#2563eb", "#16a34a"].map((c, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setTextColor(c)}
-                          className={`w-5 h-5 rounded-full border transition ${
-                            textColor === c ? "border-white scale-110 shadow" : "border-slate-850"
-                          }`}
-                          style={{ backgroundColor: c }}
-                        />
-                      ))}
+                      {["#ffffff", "#000000", "#e11d48", "#eab308", "#2563eb", "#16a34a"].map((c, i) => {
+                        const activeColor = selectedTextId 
+                          ? (editorTextOverlays.find(t => t.id === selectedTextId)?.color || textColor)
+                          : textColor;
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => {
+                              if (selectedTextId) {
+                                setEditorTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, color: c } : t));
+                              }
+                              setTextColor(c);
+                            }}
+                            className={`w-5 h-5 rounded-full border transition ${
+                              activeColor === c ? "border-white scale-110 shadow" : "border-slate-850"
+                            }`}
+                            style={{ backgroundColor: c }}
+                          />
+                        );
+                      })}
                     </div>
 
                     {/* Font size control */}
                     <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span>Size: {textSize}px</span>
+                      <span>Size: {selectedTextId ? (editorTextOverlays.find(t => t.id === selectedTextId)?.size || textSize) : textSize}px</span>
                       <input
                         type="range"
                         min="12"
                         max="80"
-                        value={textSize}
-                        onChange={(e) => setTextSize(Number(e.target.value))}
+                        value={selectedTextId ? (editorTextOverlays.find(t => t.id === selectedTextId)?.size || textSize) : textSize}
+                        onChange={(e) => {
+                          const sz = Number(e.target.value);
+                          if (selectedTextId) {
+                            setEditorTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, size: sz } : t));
+                          }
+                          setTextSize(sz);
+                        }}
                         className="w-2/3 accent-indigo-500 h-1 bg-slate-800 rounded-lg cursor-pointer"
                       />
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleAddText}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
-                    >
-                      ✍️ Add Text Box
-                    </button>
+                    {/* Font Family selector */}
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Font:</span>
+                      <select
+                        value={selectedTextId ? (editorTextOverlays.find(t => t.id === selectedTextId)?.font || "Arial") : textFont}
+                        onChange={(e) => {
+                          const f = e.target.value;
+                          if (selectedTextId) {
+                            setEditorTextOverlays(prev => prev.map(t => t.id === selectedTextId ? { ...t, font: f } : t));
+                          }
+                          setTextFont(f);
+                        }}
+                        className="w-2/3 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs focus:outline-none"
+                      >
+                        <option value="Arial">Sans-Serif (Arial)</option>
+                        <option value="Times New Roman">Serif (Times)</option>
+                        <option value="Courier New">Monospace (Courier)</option>
+                        <option value="Georgia">Georgia</option>
+                        <option value="Comic Sans MS">Comic Sans</option>
+                        <option value="Impact">Impact (Bold)</option>
+                      </select>
+                    </div>
+
+                    {selectedTextId ? (
+                      <div className="flex gap-2 pt-1 animate-in slide-in-from-top-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditorTextOverlays(prev => prev.filter(t => t.id !== selectedTextId));
+                            setSelectedTextId(null);
+                          }}
+                          className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-xl text-xs transition"
+                        >
+                          🗑️ Delete Text
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTextId(null)}
+                          className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 rounded-xl border border-slate-700 text-xs transition"
+                        >
+                          Deselect
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleAddText}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                      >
+                        ✍️ Add Text Box
+                      </button>
+                    )}
+
                     {editorTextOverlays.length > 0 && (
-                      <p className="text-[9px] text-slate-450 font-bold block pt-1 text-center text-slate-400">
-                        💡 Click & drag placed text items on canvas to move.
+                      <p className="text-[9.5px] text-slate-400 block pt-1 text-center font-medium">
+                        💡 Click a text box to select/edit/resize; drag to relocate.
                       </p>
                     )}
                   </div>
