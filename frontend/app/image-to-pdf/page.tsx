@@ -699,7 +699,6 @@ export default function ImageToPDF() {
                         draggedIndex === idx ? "opacity-30" : ""
                       }`}
                     >
-                      {/* Image Thumbnail Preview container */}
                       <div className="w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200 relative group cursor-grab">
                         {renderable ? (
                           <img
@@ -713,9 +712,36 @@ export default function ImageToPDF() {
                             <span className="text-[8px] uppercase font-bold mt-1 text-slate-500">HEIC Image</span>
                           </div>
                         )}
-                        <span className="absolute top-2 left-2 bg-indigo-600/90 text-white text-[9px] font-black w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm">
+                        <span className="absolute top-2 left-2 bg-indigo-600/90 text-white text-[9px] font-black w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm z-10">
                           {idx + 1}
                         </span>
+
+                        {/* Top-Right Absolute Delete/Cross Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeFile(idx);
+                          }}
+                          className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-full shadow-md transition hover:scale-110 active:scale-90 z-20 cursor-pointer"
+                          title="Remove Image"
+                        >
+                          <X size={10} className="w-2.5 h-2.5" />
+                        </button>
+
+                        {/* Center Hover/Mobile Edit Button Overlay */}
+                        {renderable && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingIndex(idx)}
+                            className="absolute inset-0 bg-slate-950/40 hover:bg-slate-950/65 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-1 cursor-pointer z-10"
+                            title="Click to Edit"
+                          >
+                            <span className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-md hover:scale-105 active:scale-95 transition">
+                              🎨 Edit
+                            </span>
+                          </button>
+                        )}
                       </div>
 
                       {/* Info & action buttons */}
@@ -727,14 +753,14 @@ export default function ImageToPDF() {
                           {(item.file.size / 1024 / 1024).toFixed(2)} MB
                         </span>
 
-                        <div className="flex items-center justify-between border-t border-slate-200/80 pt-2 mt-1 gap-1">
+                        <div className="flex items-center justify-center border-t border-slate-200/80 pt-2 mt-1">
                           {/* Reordering buttons (desktop & mobile friendly) */}
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-3">
                             <button
                               type="button"
                               onClick={() => moveFile(idx, "up")}
                               disabled={idx === 0}
-                              className="p-1 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              className="p-1 px-2.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-605 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-xs"
                               title="Move Left"
                             >
                               <span className="text-[10px] font-bold font-mono">◀</span>
@@ -743,31 +769,10 @@ export default function ImageToPDF() {
                               type="button"
                               onClick={() => moveFile(idx, "down")}
                               disabled={idx === files.length - 1}
-                              className="p-1 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              className="p-1 px-2.5 bg-white border border-slate-200 text-slate-650 hover:text-indigo-605 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-xs"
                               title="Move Right"
                             >
                               <span className="text-[10px] font-bold font-mono">▶</span>
-                            </button>
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            {renderable && (
-                              <button
-                                type="button"
-                                onClick={() => setEditingIndex(idx)}
-                                className="p-1 px-1.5 bg-indigo-50 border border-indigo-150 text-indigo-700 hover:bg-indigo-100 rounded-lg transition cursor-pointer flex items-center gap-1 text-[9px] font-bold"
-                                title="Edit / Preview"
-                              >
-                                🎨 Edit
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => removeFile(idx)}
-                              className="p-1 bg-white border border-slate-205 text-red-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title="Remove"
-                            >
-                              <X size={12} />
                             </button>
                           </div>
                         </div>
@@ -861,8 +866,8 @@ export default function ImageToPDF() {
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">
                   🎨 Canvas Image Editor
                 </h3>
-                <p className="text-[10px] text-slate-500 truncate" title={files[editingIndex]?.file?.name}>
-                  File: {files[editingIndex]?.file?.name}
+                <p className="text-[10px] text-slate-500 truncate" title={files[editingIndex ?? 0]?.file?.name}>
+                  File: {files[editingIndex ?? 0]?.file?.name}
                 </p>
               </div>
               <button
@@ -942,7 +947,7 @@ export default function ImageToPDF() {
                     </button>
                   </div>
 
-                  {cropMode && editorCropBox && editorCropBox.w > 10 && editorCropBox.h > 10 && (
+                  {cropMode && editorCropBox && (editorCropBox.w ?? 0) > 10 && (editorCropBox.h ?? 0) > 10 && (
                     <button
                       type="button"
                       onClick={handleApplyCrop}
