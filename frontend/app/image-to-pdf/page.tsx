@@ -244,11 +244,15 @@ export default function ImageToPDF() {
 
   // Loads active image when editor modal is opened
   useEffect(() => {
-    if (editingIndex === null) {
-      setImageObject(null);
-      setSelectedTextId(null);
-      return;
-    }
+    setImageObject(null);
+    setSelectedTextId(null);
+    setEditorRotateAngle(0);
+    setCurrentCrop({ x: 0, y: 0, w: 1, h: 1 });
+    setEditorTextOverlays([]);
+    setEditorCropBox(null);
+    setCropMode(false);
+
+    if (editingIndex === null) return;
     
     const activeFile = files[editingIndex];
     if (!activeFile) return;
@@ -257,12 +261,6 @@ export default function ImageToPDF() {
     img.src = activeFile.preview;
     img.onload = () => {
       setImageObject(img);
-      setEditorRotateAngle(0);
-      setCurrentCrop({ x: 0, y: 0, w: 1, h: 1 });
-      setEditorTextOverlays([]);
-      setSelectedTextId(null);
-      setEditorCropBox(null);
-      setCropMode(false);
     };
   }, [editingIndex]);
 
@@ -322,7 +320,13 @@ export default function ImageToPDF() {
     editorTextOverlays.forEach(item => {
       ctx.save();
       ctx.fillStyle = item.color;
-      ctx.font = `bold ${item.size}px "${item.font || 'Arial'}"`;
+      const fontStack = item.font === "Mangal" ? '"Mangal", "Noto Sans Devanagari", sans-serif' :
+                        item.font === "Poppins" ? '"Poppins", "Noto Sans Devanagari", sans-serif' :
+                        item.font === "Times New Roman" ? '"Times New Roman", Times, serif' :
+                        item.font === "Courier New" ? '"Courier New", Courier, monospace' :
+                        item.font === "Calibri" ? '"Calibri", sans-serif' :
+                        `"${item.font || 'Arial'}", sans-serif`;
+      ctx.font = `bold ${item.size}px ${fontStack}`;
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
       ctx.fillText(item.text, item.x, item.y);
@@ -466,8 +470,6 @@ export default function ImageToPDF() {
     // Core Correction: Add save() to balance the restore() and clear translations properly
     exportCtx.save();
     exportCtx.translate(exportW / 2, exportH / 2);
-    exportCtx.rotate((editorRotateAngle * Math.PI) / 185); // Wait! Let's make it Math.PI / 180! Typo warning. It should be 180.
-    // Wait, let me change this on the next line to 180 to guarantee accuracy:
     exportCtx.rotate((editorRotateAngle * Math.PI) / 180);
     
     const drawW = (editorRotateAngle % 180 === 0) ? exportW : exportH;
@@ -488,7 +490,13 @@ export default function ImageToPDF() {
       exportCtx.save();
       exportCtx.fillStyle = item.color;
       const scaledSize = item.size * scaleFactorY;
-      exportCtx.font = `bold ${scaledSize}px "${item.font || 'Arial'}"`;
+      const fontStack = item.font === "Mangal" ? '"Mangal", "Noto Sans Devanagari", sans-serif' :
+                        item.font === "Poppins" ? '"Poppins", "Noto Sans Devanagari", sans-serif' :
+                        item.font === "Times New Roman" ? '"Times New Roman", Times, serif' :
+                        item.font === "Courier New" ? '"Courier New", Courier, monospace' :
+                        item.font === "Calibri" ? '"Calibri", sans-serif' :
+                        `"${item.font || 'Arial'}", sans-serif`;
+      exportCtx.font = `bold ${scaledSize}px ${fontStack}`;
       exportCtx.textBaseline = "middle";
       exportCtx.textAlign = "center";
       
@@ -1028,11 +1036,13 @@ export default function ImageToPDF() {
                         className="w-2/3 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-white text-xs focus:outline-none"
                       >
                         <option value="Arial">Sans-Serif (Arial)</option>
-                        <option value="Times New Roman">Serif (Times)</option>
-                        <option value="Courier New">Monospace (Courier)</option>
-                        <option value="Georgia">Georgia</option>
-                        <option value="Comic Sans MS">Comic Sans</option>
-                        <option value="Impact">Impact (Bold)</option>
+                        <option value="Times New Roman">Times New Roman (Courts & Legal)</option>
+                        <option value="Calibri">Calibri (Official Document)</option>
+                        <option value="Poppins">Poppins (Modern Devnagari / English)</option>
+                        <option value="Mangal">Mangal (Govt Exam Hindi / Devnagari)</option>
+                        <option value="Georgia">Georgia (Serif)</option>
+                        <option value="Courier New">Courier New (Typewriter / Code)</option>
+                        <option value="Impact">Impact (Bold Titles)</option>
                       </select>
                     </div>
 
@@ -1112,6 +1122,7 @@ export default function ImageToPDF() {
 
       {/* Internal CSS for scrollbar */}
       <style dangerouslySetInnerHTML={{__html: `
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;650;700&family=Noto+Sans+Devanagari:wght@400;700&display=swap');
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
         }
