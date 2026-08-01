@@ -586,15 +586,20 @@ export default function ImageToPDF() {
       if (axios.isAxiosError(e) && e.response?.data instanceof Blob) {
         try {
           const text = await e.response.data.text();
-          const j = JSON.parse(text) as { code?: string; detail?: string };
+          const j = JSON.parse(text) as { code?: string; detail?: any };
           
           if (j?.code === "LOGIN_REQUIRED") {
              alert(`${j.detail || "Log in required"}\n\nPlease log in and try again.`);
              return;
           }
           if (j?.detail) {
-             alert(j.detail);
-             return;
+            const msg = typeof j.detail === "object"
+              ? (Array.isArray(j.detail)
+                  ? j.detail.map((err: any) => err.msg || JSON.stringify(err)).join("\n")
+                  : JSON.stringify(j.detail))
+              : j.detail;
+            alert(msg);
+            return;
           }
         } catch {
           /* fall through */
