@@ -3,6 +3,11 @@ from fastapi.responses import FileResponse
 import tempfile
 import os
 from PIL import Image
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 import io
 import fitz # PyMuPDF
 import zipfile
@@ -615,13 +620,85 @@ async def handle_libreoffice_conversion(file: UploadFile, allowed_exts: list[str
 
 # 📄 WORD to PDF (.pdf)
 @router.post("/word-to-pdf")
-async def word_to_pdf(file: UploadFile = File(...)):
-    return await handle_libreoffice_conversion(
-        file=file, 
-        allowed_exts=[".doc", ".docx"], 
-        err_prefix="Word to PDF", 
-        response_prefix="Converted"
-    )
+async def word_to_pdf(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    
+    if len(files) == 1:
+        return await handle_libreoffice_conversion(
+            file=files[0], 
+            allowed_exts=[".doc", ".docx"], 
+            err_prefix="Word to PDF", 
+            response_prefix="Converted"
+        )
+    
+    import uuid
+    unique_id = str(uuid.uuid4())
+    temp_dir = tempfile.gettempdir()
+    
+    temp_pdf_paths = []
+    temp_in_paths = []
+    
+    try:
+        # Convert each Word document to a PDF in order
+        for file in files:
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in [".doc", ".docx"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid file extension: {file.filename}. Only .doc and .docx are allowed."
+                )
+            
+            in_path = os.path.join(temp_dir, f"in_{uuid.uuid4()}{ext}")
+            temp_in_paths.append(in_path)
+            
+            with open(in_path, "wb") as f:
+                f.write(await file.read())
+            
+            out_pdf = convert_to_pdf_with_libreoffice(in_path, temp_dir)
+            temp_pdf_paths.append(out_pdf)
+            
+        # Merge all generated PDFs
+        merged_doc = fitz.open()
+        for pdf_path in temp_pdf_paths:
+            doc = fitz.open(pdf_path)
+            merged_doc.insert_pdf(doc)
+            doc.close()
+            
+        output_filename = f"Merged_Converted_Documents_{unique_id}.pdf"
+        output_path = os.path.join(temp_dir, output_filename)
+        merged_doc.save(output_path)
+        merged_doc.close()
+        
+        # Cleanup temporary files
+        for p in temp_in_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+        for p in temp_pdf_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+                
+        return FileResponse(
+            output_path,
+            media_type="application/pdf",
+            filename="Converted_Word_Documents.pdf",
+            headers={"Content-Disposition": "attachment; filename=Converted_Word_Documents.pdf"}
+        )
+        
+    except Exception as e:
+        # Cleanup on failure
+        for p in temp_in_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+        for p in temp_pdf_paths:
+            if os.path.exists(p):
+                try: os.remove(p)
+                except: pass
+        print("Batch Word to PDF Error:", e)
+        raise HTTPException(status_code=500, detail=f"Failed to convert Word files to PDF: {str(e)}")
 
 # 📊 POWERPOINT to PDF (.pdf)
 @router.post("/ppt-to-pdf")

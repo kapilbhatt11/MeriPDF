@@ -6,31 +6,66 @@ import { api } from "@/lib/api";
 import { optionalAuthHeaders } from "@/lib/auth";
 import { logPDFOperation } from "@/lib/analytics";
 
+interface ImageFile {
+  file: File;
+  preview: string;
+}
+
 export default function ImageToPDF() {
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<ImageFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted_Images.pdf");
   const [showHelp, setShowHelp] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files);
-      const validImages = newFiles.filter(f => f.type.startsWith('image/'));
+      const validImages = newFiles.filter(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase();
+        return f.type.startsWith('image/') || ext === 'heic' || ext === 'heif';
+      });
       
       if (validImages.length !== newFiles.length) {
-        alert("Some files were discarded. Please upload valid images only (JPG, PNG).");
+        alert("Some files were discarded. Please upload valid images only (JPG, PNG, HEIC).");
       }
       
-      setFiles(prev => [...prev, ...validImages]);
+      const mapped = validImages.map(f => ({
+        file: f,
+        preview: URL.createObjectURL(f)
+      }));
+      setFiles(prev => [...prev, ...mapped]);
       setDownloadUrl(null);
     }
   };
 
   const removeFile = (index: number) => {
+    const item = files[index];
+    if (item && item.preview) {
+      URL.revokeObjectURL(item.preview);
+    }
     setFiles(prev => prev.filter((_, i) => i !== index));
     setDownloadUrl(null);
+  };
+
+  const moveFile = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === files.length - 1) return;
+
+    const nextIndex = direction === "up" ? index - 1 : index + 1;
+    const reordered = [...files];
+    const temp = reordered[index];
+    reordered[index] = reordered[nextIndex];
+    reordered[nextIndex] = temp;
+    setFiles(reordered);
+    setDownloadUrl(null);
+  };
+
+  const isRenderable = (fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    return ext !== 'heic' && ext !== 'heif';
   };
 
   const handleConvert = async () => {
@@ -40,8 +75,8 @@ export default function ImageToPDF() {
     setDownloadUrl(null);
 
     const formData = new FormData();
-    files.forEach(file => {
-      formData.append("files", file);
+    files.forEach(item => {
+      formData.append("files", item.file);
     });
 
     try {
@@ -85,7 +120,7 @@ export default function ImageToPDF() {
           /* fall through */
         }
       }
-      alert("Failed to convert images. Make sure they are standard JPG/PNG formats.");
+      alert("Failed to convert images. Make sure they are standard JPG/PNG/HEIC formats.");
     } finally {
       setLoading(false);
     }
@@ -137,7 +172,7 @@ export default function ImageToPDF() {
           <input
             ref={inputRef}
             type="file"
-            accept="image/png, image/jpeg, image/jpg"
+            accept="image/png, image/jpeg, image/jpg, image/heic, image/heif, .heic, .heif"
             className="hidden"
             multiple
             onChange={handleFileChange}
@@ -154,27 +189,99 @@ export default function ImageToPDF() {
                <p className="text-sm">No images selected yet.</p>
              </div>
           ) : (
-            <div className="flex-grow overflow-y-auto max-h-[300px] pr-2 space-y-3 mb-6 custom-scrollbar">
-              {files.map((file, idx) => (
-                <div key={idx} className="flex items-center justify-between bg-slate-50 border border-slate-200 p-3 rounded-lg shadow-sm hover:border-indigo-300 transition group">
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="bg-indigo-100 text-indigo-600 p-2 rounded flex-shrink-0 cursor-grab">
-                      <GripVertical size={16} />
+            <div className="flex-grow overflow-y-auto max-h-[380px] pr-2 mb-6 custom-scrollbar">
+              <p className="text-xs text-indigo-500 font-bold mb-3">
+                💡 Drag cards to rearrange order, or use arrows (◀ / ▶) to sort on mobile.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {files.map((item, idx) => {
+                  const renderable = isRenderable(item.file.name);
+                  return (
+                    <div
+                      key={idx}
+                      draggable
+                      onDragStart={() => setDraggedIndex(idx)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDragEnd={() => setDraggedIndex(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedIndex === null || draggedIndex === idx) return;
+                        const reordered = [...files];
+                        const [moved] = reordered.splice(draggedIndex, 1);
+                        reordered.splice(idx, 0, moved);
+                        setFiles(reordered);
+                        setDraggedIndex(null);
+                        setDownloadUrl(null);
+                      }}
+                      className={`relative bg-slate-50 border p-2.5 rounded-2xl flex flex-col justify-between gap-3 text-center transition group shadow-sm select-none hover:border-indigo-400 hover:shadow-md ${
+                        draggedIndex === idx ? "opacity-30" : ""
+                      }`}
+                    >
+                      {/* Image Thumbnail Preview container */}
+                      <div className="w-full aspect-[4/3] bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200 relative group cursor-grab">
+                        {renderable ? (
+                          <img
+                            src={item.preview}
+                            alt={item.file.name}
+                            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center text-indigo-400">
+                            <ImageIcon className="w-8 h-8 opacity-75" />
+                            <span className="text-[8px] uppercase font-bold mt-1 text-slate-500">HEIC Image</span>
+                          </div>
+                        )}
+                        <span className="absolute top-2 left-2 bg-indigo-600/90 text-white text-[9px] font-black w-4.5 h-4.5 flex items-center justify-center rounded-full shadow-sm">
+                          {idx + 1}
+                        </span>
+                      </div>
+
+                      {/* Info & action buttons */}
+                      <div className="flex flex-col gap-1 overflow-hidden">
+                        <span className="font-bold text-[11px] text-slate-700 truncate block px-1" title={item.file.name}>
+                          {item.file.name}
+                        </span>
+                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">
+                          {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                        </span>
+
+                        <div className="flex items-center justify-between border-t border-slate-200/80 pt-2 mt-1 gap-1">
+                          {/* Reordering buttons (desktop & mobile friendly) */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => moveFile(idx, "up")}
+                              disabled={idx === 0}
+                              className="p-1 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              title="Move Left"
+                            >
+                              <span className="text-[10px] font-bold font-mono">◀</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveFile(idx, "down")}
+                              disabled={idx === files.length - 1}
+                              className="p-1 bg-white border border-slate-200 text-slate-650 hover:text-indigo-600 rounded-lg hover:border-indigo-400 transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                              title="Move Right"
+                            >
+                              <span className="text-[10px] font-bold font-mono">▶</span>
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => removeFile(idx)}
+                            className="p-1 bg-white border border-slate-200 text-red-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="Remove"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex flex-col truncate">
-                      <span className="font-semibold text-sm text-gray-700 truncate">{file.name}</span>
-                      <span className="text-xs text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => removeFile(idx)}
-                    className="text-gray-400 hover:text-red-500 bg-white rounded-full p-1 border shadow-sm transition flex-shrink-0"
-                    title="Remove Image"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
           )}
 
