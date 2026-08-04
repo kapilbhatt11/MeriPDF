@@ -157,7 +157,10 @@ app.include_router(router_compress)
 # ---------------- Root Endpoint ----------------
 @app.get("/")
 def root():
-    return {"message": "✅ MeriPDF Backend Running (OCR + PDF Tools Active)"}
+    return {
+        "message": "✅ MeriPDF Backend Running (OCR + PDF Tools Active)",
+        "version": "v1.0.1-fitz-merge"
+    }
 
 
 
