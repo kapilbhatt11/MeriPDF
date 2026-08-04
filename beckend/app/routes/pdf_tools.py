@@ -147,31 +147,41 @@ router_compress = APIRouter(prefix="/compress/pdf", tags=["Compress PDF"])
 async def merge_pdf(files: list[UploadFile] = File(...), rotations: str = Form("[]")):
     """Merge PDFs with optional rotation"""
     try:
-        rotations = json.loads(rotations)
-        writer = PdfWriter()
+        try:
+            rotations = json.loads(rotations)
+        except Exception:
+            rotations = []
+
+        doc = fitz.open()
 
         for file in files:
-            pdf = PdfReader(file.file)
+            pdf_bytes = await file.read()
+            src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            
             rotation = 0
             for r in rotations:
-                if r["name"] == file.filename:
-                    rotation = r["rotation"]
+                if r.get("name") == file.filename:
+                    rotation = int(r.get("rotation", 0))
                     break
 
-            for page in pdf.pages:
-                if rotation != 0:
-                    page.rotate(rotation)
-                writer.add_page(page)
+            if rotation != 0:
+                for page in src_doc:
+                    page.set_rotation((page.rotation + rotation) % 360)
+
+            doc.insert_pdf(src_doc)
+            src_doc.close()
 
         output_path = Path("merge_pdf_outputs/merged.pdf")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, "wb") as f:
-            writer.write(f)
+        doc.save(str(output_path), garbage=3, deflate=True)
+        doc.close()
 
         return FileResponse(output_path, media_type="application/pdf", filename="MeriPDF_Merged.pdf")
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Merge failed: {e}")
 
 
