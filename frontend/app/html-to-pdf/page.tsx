@@ -16,48 +16,8 @@ export default function HtmlToPdf() {
   const [showHelp, setShowHelp] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
-
   const handleClearUrlInput = () => {
     setUrlInput("");
-    setPreviewUrl(null);
-    setPreviewError(false);
-  };
-
-  const handleLoadPreview = async () => {
-    if (!urlInput.trim()) return alert("Please enter a link first");
-    let targetUrl = urlInput.trim();
-    if (!/^https?:\/\//i.test(targetUrl)) {
-      targetUrl = "http://" + targetUrl;
-    }
-
-    setPreviewLoading(true);
-    setPreviewError(false);
-    setPreviewUrl(null);
-
-    const formData = new FormData();
-    formData.append("url", targetUrl);
-
-    try {
-      const res = await axios.post(
-        api("/converters/url-preview"),
-        formData,
-        {
-          responseType: "blob",
-          headers: optionalAuthHeaders(),
-        }
-      );
-
-      const url = URL.createObjectURL(new Blob([res.data], { type: "image/jpeg" }));
-      setPreviewUrl(url);
-    } catch (e: unknown) {
-      console.error(e);
-      setPreviewError(true);
-    } finally {
-      setPreviewLoading(false);
-    }
   };
 
 
@@ -204,7 +164,7 @@ export default function HtmlToPdf() {
       {/* Premium Tab Bar */}
       <div className="flex border-b border-slate-200 mb-8 max-w-5xl mx-auto gap-4">
         <button
-          onClick={() => { setActiveTab("file"); setDownloadUrl(null); setPreviewUrl(null); setPreviewError(false); }}
+          onClick={() => { setActiveTab("file"); setDownloadUrl(null); }}
           className={`pb-4 px-4 font-bold text-lg flex items-center gap-2 border-b-2 transition-all ${
             activeTab === "file"
               ? "border-violet-600 text-violet-600"
@@ -259,7 +219,6 @@ export default function HtmlToPdf() {
                     value={urlInput}
                     onChange={(e) => {
                       setUrlInput(e.target.value);
-                      if (previewUrl) setPreviewUrl(null);
                     }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 pl-4 pr-12 outline-none focus:bg-white focus:border-violet-500 shadow-sm transition-all placeholder:text-slate-400 text-slate-800 font-medium"
                   />
@@ -273,26 +232,12 @@ export default function HtmlToPdf() {
                     </button>
                   )}
                 </div>
-                
-                <button
-                  type="button"
-                  onClick={handleLoadPreview}
-                  disabled={previewLoading || !urlInput.trim()}
-                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {previewLoading ? (
-                    <Loader2 className="animate-spin w-4 h-4 text-slate-500" />
-                  ) : (
-                    <Globe size={16} />
-                  )}
-                  {previewLoading ? "Generating Preview..." : "Generate Webpage Preview"}
-                </button>
               </div>
             </div>
 
-            {/* Premium Browser Mockup Webpage Preview Card */}
-            {(previewUrl || previewLoading || previewError) && (
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden animate-in fade-in slide-in-from-top-4">
+            {/* Instant Static Webpage Mockup Preview Card */}
+            {urlInput.trim() && (
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden animate-in fade-in duration-300">
                 <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="flex gap-1.5 flex-shrink-0">
@@ -304,39 +249,53 @@ export default function HtmlToPdf() {
                       {urlInput}
                     </span>
                   </div>
-                  {previewUrl && (
-                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0">
-                      Live Preview
-                    </span>
-                  )}
+                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0">
+                    A4 PDF Layout
+                  </span>
                 </div>
 
-                <div className="p-4 bg-slate-50 min-h-[220px] flex items-center justify-center relative overflow-hidden">
-                  {previewLoading && (
-                    <div className="flex flex-col items-center gap-3 text-slate-500 py-10">
-                      <Loader2 className="animate-spin w-8 h-8 text-violet-600 animate-duration-1000" />
-                      <p className="text-sm font-semibold">Capturing page styles and layout...</p>
+                <div className="p-6 bg-slate-50 min-h-[220px] flex flex-col items-center justify-center relative">
+                  {/* Styled Webpage Skeleton Mockup representing a page being converted */}
+                  <div className="w-full max-w-[260px] aspect-[1/1.41] bg-white border border-slate-200 rounded-lg shadow-sm p-4 flex flex-col gap-3 relative overflow-hidden transition-all hover:shadow-md">
+                    {/* Simulated Header */}
+                    <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                      <div className="w-10 h-2 bg-violet-200 rounded"></div>
+                      <div className="flex gap-1">
+                        <div className="w-4 h-1.5 bg-slate-100 rounded"></div>
+                        <div className="w-4 h-1.5 bg-slate-100 rounded"></div>
+                      </div>
                     </div>
-                  )}
 
-                  {previewError && (
-                    <div className="text-center py-10 text-red-500">
-                      <X size={40} className="mx-auto mb-2 opacity-50 text-red-400" />
-                      <p className="text-sm font-bold">Failed to load preview</p>
-                      <p className="text-xs text-slate-400 mt-1">Make sure the URL is valid and accessible.</p>
+                    {/* Simulated Content */}
+                    <div className="space-y-2 flex-1">
+                      <div className="w-3/4 h-3.5 bg-violet-600/10 rounded-sm"></div>
+                      <div className="w-1/2 h-2.5 bg-slate-200 rounded-sm"></div>
+                      
+                      {/* Image Placeholder */}
+                      <div className="w-full h-16 bg-slate-100 rounded-md border border-slate-200/50 flex items-center justify-center my-1.5">
+                        <Globe size={18} className="text-slate-350 animate-pulse" />
+                      </div>
+                      
+                      {/* Paragraph skeleton */}
+                      <div className="space-y-1.5">
+                        <div className="w-full h-2 bg-slate-100 rounded"></div>
+                        <div className="w-full h-2 bg-slate-100 rounded"></div>
+                        <div className="w-5/6 h-2 bg-slate-100 rounded"></div>
+                      </div>
                     </div>
-                  )}
 
-                  {previewUrl && (
-                    <div className="w-full max-h-[400px] overflow-y-auto border border-slate-200 rounded-lg shadow-inner bg-white custom-scrollbar-styling">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={previewUrl}
-                        alt="Webpage Preview"
-                        className="w-full h-auto object-cover object-top"
-                      />
+                    {/* Simulated Footer */}
+                    <div className="flex justify-between items-center border-t border-slate-100 pt-2 text-[8px] text-slate-300 font-mono">
+                      <span>Powered by Playwright</span>
+                      <span>Page 1 of 1</span>
                     </div>
-                  )}
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-white/30 to-transparent pointer-events-none" />
+                  </div>
+
+                  <p className="text-xs text-slate-500 font-semibold mt-4 text-center">
+                    CSS and JavaScript options will be executed by Playwright.
+                  </p>
                 </div>
               </div>
             )}
@@ -397,12 +356,10 @@ export default function HtmlToPdf() {
                   {loading ? "Converting Link..." : "Convert Link to PDF"}
                 </button>
 
-                {(urlInput.trim() || previewUrl) && (
+                {urlInput.trim() && (
                   <button
                     onClick={() => {
                       setUrlInput("");
-                      setPreviewUrl(null);
-                      setPreviewError(false);
                       setDownloadUrl(null);
                     }}
                     className="w-full text-slate-500 hover:text-slate-700 font-semibold py-2.5 rounded-lg text-sm transition flex justify-center items-center gap-2 border border-slate-200 bg-white"
