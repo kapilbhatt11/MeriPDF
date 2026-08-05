@@ -1,0 +1,30 @@
+commit 3d3d1144f7f1b91c49c22cd47e9d372eb4a3eb48
+Author: kapilbhatt11 <kapil.bhatt111@gmail.com>
+Date:   Fri Jul 31 00:38:34 2026 +0530
+
+    fix: sanitize tesseract multi-language parameter spaces to plus sign
+
+diff --git a/beckend/app/mainNew.py b/beckend/app/mainNew.py
+index 1489262..d46d228 100644
+--- a/beckend/app/mainNew.py
++++ b/beckend/app/mainNew.py
+@@ -129,6 +129,7 @@ async def process_and_extract(
+     use_whitelist: when True, restrict characters (useful for short text)
+     apply_spellcorr: if True, apply lightweight spell correction
+     """
++    lang = lang.replace(" ", "+").replace(",", "+")
+     text = ""
+     # build base tesseract config
+     base_config = f"--oem 3 --psm {psm_mode}"
+diff --git a/beckend/app/services/ocr.py b/beckend/app/services/ocr.py
+index 010ba36..9065a50 100644
+--- a/beckend/app/services/ocr.py
++++ b/beckend/app/services/ocr.py
+@@ -47,6 +47,7 @@ import asyncio
+ 
+ async def process_and_extract(file_path: Path, text_path: Path, lang: str, stored_name: str):
+     """🔍 Run OCR and save results without blocking the event loop."""
++    lang = lang.replace(" ", "+").replace(",", "+")
+     text = ""
+     config = "--oem 3 --psm 6"
+ 

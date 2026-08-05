@@ -1,0 +1,260 @@
+﻿diff --git a/.gitignore b/.gitignore
+index c1f1ab3..cf1eb0f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,8 +1,6 @@
+ # Virtual environment
+ .venv/
+ python-3.11.9-embed-amd64/
+-tmp/
+-
+ 
+ # Node modules
+ node_modules/
+diff --git a/beckend/Dockerfile b/beckend/Dockerfile
+index 2e7be94..3c6ed7f 100644
+--- a/beckend/Dockerfile
++++ b/beckend/Dockerfile
+@@ -20,8 +20,6 @@ WORKDIR /app
+ # Copy requirements and install
+ COPY requirements.txt /app/
+ RUN pip install --no-cache-dir -r requirements.txt
+-RUN playwright install --with-deps chromium
+-
+ 
+ # Copy backend app code
+ COPY . /app
+diff --git a/beckend/app/routes/converters.py b/beckend/app/routes/converters.py
+index 9751ad1..cbc00f8 100644
+--- a/beckend/app/routes/converters.py
++++ b/beckend/app/routes/converters.py
+@@ -907,114 +907,111 @@ async def excel_to_pdf(file: UploadFile = File(...)):
+         response_prefix="Converted_Data"
+     )
+ 
+-async def render_with_playwright(source: str, out_path: str, is_url: bool):
+-    from playwright.async_api import async_playwright
+-    async with async_playwright() as p:
+-        browser = await p.chromium.launch(
+-            headless=True,
+-            args=[
+-                "--no-sandbox",
+-                "--disable-setuid-sandbox",
+-                "--disable-dev-shm-usage",
+-                "--disable-gpu"
+-            ]
+-        )
+-        context = await browser.new_context(
+-            viewport={'width': 1280, 'height': 800},
+-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+-            ignore_https_errors=True
+-        )
+-        page = await context.new_page()
+-        
+-        # Prevent popup alert messages from blocking page load
+-        page.on("dialog", lambda dialog: dialog.dismiss())
+-        
+-        if is_url:
+-            try:
+-                await page.goto(source, wait_until="networkidle", timeout=25000)
+-            except Exception as e:
+-                print(f"Playwright networkidle timeout/error on {source}: {e}. Proceeding.")
+-                try:
+-                    await page.wait_for_timeout(2000)
+-                except:
+-                    pass
+-        else:
+-            file_url = f"file:///{os.path.abspath(source).replace(os.sep, '/')}"
+-            try:
+-                await page.goto(file_url, wait_until="networkidle", timeout=15000)
+-            except Exception as e:
+-                print(f"Playwright local html load warning: {e}. Proceeding.")
+-                
+-        await page.pdf(
+-            path=out_path,
+-            format="A4",
+-            print_background=True,
+-            margin={"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"}
+-        )
+-        await browser.close()
+-
+ # ≡ƒôä HTML to PDF (.pdf)
+ @router.post("/html-to-pdf")
+ async def html_to_pdf(file: UploadFile = File(...)):
+-    import uuid
+-    
+-    ext = os.path.splitext(file.filename)[1].lower()
+-    if ext not in [".html", ".htm"]:
+-        raise HTTPException(
+-            status_code=400, 
+-            detail="Invalid file extension. Allowed extensions are: .html, .htm"
+-        )
+-        
+-    unique_id = str(uuid.uuid4())
+-    temp_dir = tempfile.gettempdir()
+-    in_path = os.path.join(temp_dir, f"in_{unique_id}{ext}")
+-    out_path = os.path.join(temp_dir, f"out_{unique_id}.pdf")
+-    
+-    try:
+-        # Save uploaded HTML context
+-        with open(in_path, "wb") as f:
+-            f.write(await file.read())
+-            
+-        await render_with_playwright(in_path, out_path, is_url=False)
+-        
+-        base_filename = os.path.splitext(file.filename)[0]
+-        clean_filename = f"Converted_{base_filename}.pdf"
+-        
+-        return FileResponse(
+-            out_path,
+-            media_type="application/pdf",
+-            filename=clean_filename,
+-            headers={"Content-Disposition": f"attachment; filename={clean_filename}"}
+-        )
+-    except Exception as e:
+-        print("HTML to PDF Playwright Error:", e)
+-        raise HTTPException(status_code=500, detail=f"Failed to convert HTML to PDF: {str(e)}")
+-    finally:
+-        if os.path.exists(in_path):
+-            try: os.remove(in_path)
+-            except: pass
++    return await handle_libreoffice_conversion(
++        file=file, 
++        allowed_exts=[".html", ".htm"], 
++        err_prefix="HTML to PDF", 
++        response_prefix="Converted_Web"
++    )
+ 
+ # ≡ƒîÉ URL to PDF
+ @router.post("/url-to-pdf")
+ async def url_to_pdf(url: str = Form(...)):
++    import requests
++    import re
+     import uuid
+-    from urllib.parse import urlparse
+-    
+-    target_url = url.strip()
+-    if not target_url.startswith(("http://", "https://")):
+-        target_url = "http://" + target_url
+-        
+-    unique_id = str(uuid.uuid4())
+-    temp_dir = tempfile.gettempdir()
+-    out_path = os.path.join(temp_dir, f"webpage_{unique_id}.pdf")
++    import tempfile
++    from urllib.parse import urljoin, urlparse
+     
+     try:
+-        await render_with_playwright(target_url, out_path, is_url=True)
++        # Fetch the content from the URL
++        headers = {
++            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
++        }
++        res = requests.get(url, headers=headers, timeout=15)
++        res.raise_for_status()
++        
++        html_content = res.text
++        
++        # Convert relative paths to absolute paths
++        def make_absolute(match):
++            attr = match.group(1)
++            quote = match.group(2)
++            val = match.group(3)
++            if val.startswith(('http://', 'https://', 'data:', 'javascript:')):
++                return match.group(0)
++            abs_val = urljoin(url, val)
++            return f'{attr}={quote}{abs_val}{quote}'
++
++        pattern = re.compile(r'(src|href)\s*=\s*(["\'])(.*?)\2', re.IGNORECASE)
++        html_content = pattern.sub(make_absolute, html_content)
++        
++        # Inject printing and page responsiveness styling
++        responsive_styles = """
++<style>
++@page {
++    size: A4;
++    margin: 1.5cm;
++}
++body {
++    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
++    color: #333333;
++    line-height: 1.5;
++    background-color: #ffffff !important;
++    width: 100% !important;
++    margin: 0 !important;
++    padding: 0 !important;
++}
++img {
++    max-width: 100% !important;
++    height: auto !important;
++    page-break-inside: avoid;
++}
++table {
++    max-width: 100% !important;
++    width: 100% !important;
++    border-collapse: collapse !important;
++    page-break-inside: auto;
++}
++tr {
++    page-break-inside: avoid;
++    page-break-after: auto;
++}
++pre, code {
++    white-space: pre-wrap !important;
++    word-wrap: break-word !important;
++    max-width: 100% !important;
++}
++header, footer, nav, aside, .cookie-banner, .modal, .popup {
++    position: relative !important;
++}
++</style>
++"""
++        if "</head>" in html_content:
++            html_content = html_content.replace("</head>", f"{responsive_styles}</head>", 1)
++        else:
++            html_content = responsive_styles + html_content
++            
++        unique_id = str(uuid.uuid4())
++        temp_dir = tempfile.gettempdir()
++        in_path = os.path.join(temp_dir, f"in_{unique_id}.html")
+         
+-        parsed_url = urlparse(target_url)
++        with open(in_path, "w", encoding="utf-8") as f:
++            f.write(html_content)
++            
++        try:
++            out_path = convert_to_pdf_with_libreoffice(in_path, temp_dir)
++        finally:
++            if os.path.exists(in_path):
++                os.remove(in_path)
++                
++        # Extract page domain/name for the filename
++        parsed_url = urlparse(url)
+         domain = parsed_url.netloc.replace("www.", "") or "webpage"
+         clean_filename = f"Webpage_{domain}.pdf"
+-        
+         return FileResponse(
+             out_path,
+             media_type="application/pdf",
+@@ -1022,11 +1019,10 @@ async def url_to_pdf(url: str = Form(...)):
+             headers={"Content-Disposition": f"attachment; filename={clean_filename}"}
+         )
+     except Exception as e:
+-        print("URL to PDF Playwright Error:", e)
++        print("URL to PDF Error:", e)
+         raise HTTPException(status_code=500, detail=f"Failed to convert URL to PDF: {str(e)}")
+ 
+ 
+-
+ # ≡ƒû╝∩╕Å GENERATE DOCUMENT THUMBNAIL
+ @router.post("/document-thumbnail")
+ async def document_thumbnail(file: UploadFile = File(...)):
+diff --git a/beckend/requirements.txt b/beckend/requirements.txt
+index ae971cf..852f56b 100644
+--- a/beckend/requirements.txt
++++ b/beckend/requirements.txt
+@@ -23,5 +23,3 @@ aiofiles>=23.0.0
+ pdf2image>=1.17.0
+ psycopg2-binary>=2.9.9
+ pillow-heif>=0.15.0
+-playwright>=1.40.0
+-

@@ -953,10 +953,43 @@ async def render_with_playwright(source: str, out_path: str, is_url: bool):
         )
         await browser.close()
 
+async def render_preview_with_playwright(url: str, out_path: str):
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu"
+            ]
+        )
+        context = await browser.new_context(
+            viewport={'width': 1280, 'height': 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, with Gecko) Chrome/120.0.0.0 Safari/537.36",
+            ignore_https_errors=True
+        )
+        page = await context.new_page()
+        page.on("dialog", lambda dialog: dialog.dismiss())
+        
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=25000)
+        except Exception as e:
+            print(f"Playwright preview load error: {e}. Proceeding.")
+            try:
+                await page.wait_for_timeout(2000)
+            except:
+                pass
+                
+        await page.screenshot(path=out_path, type="jpeg", quality=80)
+        await browser.close()
+
 # 📄 HTML to PDF (.pdf)
 @router.post("/html-to-pdf")
 async def html_to_pdf(file: UploadFile = File(...)):
     import uuid
+    import tempfile
     
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in [".html", ".htm"]:
@@ -971,7 +1004,6 @@ async def html_to_pdf(file: UploadFile = File(...)):
     out_path = os.path.join(temp_dir, f"out_{unique_id}.pdf")
     
     try:
-        # Save uploaded HTML context
         with open(in_path, "wb") as f:
             f.write(await file.read())
             
@@ -998,6 +1030,7 @@ async def html_to_pdf(file: UploadFile = File(...)):
 @router.post("/url-to-pdf")
 async def url_to_pdf(url: str = Form(...)):
     import uuid
+    import tempfile
     from urllib.parse import urlparse
     
     target_url = url.strip()
@@ -1024,6 +1057,43 @@ async def url_to_pdf(url: str = Form(...)):
     except Exception as e:
         print("URL to PDF Playwright Error:", e)
         raise HTTPException(status_code=500, detail=f"Failed to convert URL to PDF: {str(e)}")
+
+# 🌐 URL to Image Preview
+@router.post("/url-preview")
+async def url_preview(url: str = Form(...)):
+    import uuid
+    import tempfile
+    from fastapi import BackgroundTasks
+    
+    target_url = url.strip()
+    if not target_url.startswith(("http://", "https://")):
+        target_url = "http://" + target_url
+        
+    unique_id = str(uuid.uuid4())
+    temp_dir = tempfile.gettempdir()
+    out_path = os.path.join(temp_dir, f"preview_{unique_id}.jpg")
+    
+    try:
+        await render_preview_with_playwright(target_url, out_path)
+        
+        # Schedule cleanup after response is sent
+        def remove_file(filepath: str):
+            if os.path.exists(filepath):
+                try: os.remove(filepath)
+                except: pass
+                
+        bg_tasks = BackgroundTasks()
+        bg_tasks.add_task(remove_file, out_path)
+        
+        return FileResponse(
+            out_path,
+            media_type="image/jpeg",
+            filename="preview.jpg",
+            background=bg_tasks
+        )
+    except Exception as e:
+        print("URL Preview Playwright Error:", e)
+        raise HTTPException(status_code=500, detail=f"Failed to generate webpage preview: {str(e)}")
 
 
 

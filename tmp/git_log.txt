@@ -1,0 +1,12 @@
+3d3d114 fix: sanitize tesseract multi-language parameter spaces to plus sign
+61e349b fix: optimize dpi to 150 to avoid oom and fix mobile menu positioning to absolute
+13eb895 fix: poppler path, mobile nav and add dockerfile
+65bedd5 feat: implement frontend interceptor to logout and redirect user on 401 concurrent session expired
+737d39b feat: implement single device session concurrency to sign out old sessions automatically
+3e4c74a chore: restore clean health check endpoint for production security
+d929a2d debug: add smtp_user to health check
+373e517 debug: add safe SMTP config diagnostics to health endpoint
+20a1936 fix: make env int parsing robust to prevent server crash with status 3
+1a87d9d fix: resolve NotNullViolationError during user signup
+23f42e9 debug: expose table columns in health check
+b294ea3 debug: add database query to health check

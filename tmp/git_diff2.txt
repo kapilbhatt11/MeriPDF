@@ -1,0 +1,118 @@
+diff --git a/frontend/app/merge-pdf/page.tsx b/frontend/app/merge-pdf/page.tsx
+index ad3a91c..7ba588d 100644
+--- a/frontend/app/merge-pdf/page.tsx
++++ b/frontend/app/merge-pdf/page.tsx
+@@ -6,7 +6,8 @@ import {
+   DndContext,
+   closestCenter,
+   KeyboardSensor,
+-  PointerSensor,
++  MouseSensor,
++  TouchSensor,
+   useSensor,
+   useSensors,
+ } from "@dnd-kit/core";
+@@ -34,7 +35,13 @@ export default function MergePDFPage() {
+   const [showHelp, setShowHelp] = useState(false);
+ 
+   const sensors = useSensors(
+-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
++    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
++    useSensor(TouchSensor, {
++      activationConstraint: {
++        delay: 250,
++        tolerance: 5,
++      },
++    }),
+     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+   );
+ 
+diff --git a/frontend/app/organize-pdf/page.tsx b/frontend/app/organize-pdf/page.tsx
+index c4c38b5..a4a5d4d 100644
+--- a/frontend/app/organize-pdf/page.tsx
++++ b/frontend/app/organize-pdf/page.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { useState, useRef, useEffect } from "react";
+-import { UploadCloud, FileType, LayoutTemplate, Download, X, RefreshCw, RotateCw, Trash2, Plus, HelpCircle, FileText } from "lucide-react";
++import { UploadCloud, FileType, LayoutTemplate, Download, X, RefreshCw, RotateCw, Trash2, Plus, HelpCircle, FileText, ArrowLeft, ArrowRight } from "lucide-react";
+ import { toast } from "react-hot-toast";
+ import { api } from "@/lib/api";
+ import { fetchWithAuth } from "@/lib/auth";
+@@ -211,6 +211,18 @@ export default function OrganizePDFPage() {
+     });
+   };
+ 
++  const movePage = (fromIndex: number, direction: "left" | "right") => {
++    const toIndex = direction === "left" ? fromIndex - 1 : fromIndex + 1;
++    if (toIndex < 0 || toIndex >= pages.length) return;
++    setPages((prev) => {
++      const _pages = [...prev];
++      const draggedElement = _pages[fromIndex];
++      _pages.splice(fromIndex, 1);
++      _pages.splice(toIndex, 0, draggedElement);
++      return _pages;
++    });
++  };
++
+   const handleUploadClick = async () => {
+     if (files.length === 0 || pages.length === 0) return;
+ 
+@@ -506,6 +518,56 @@ export default function OrganizePDFPage() {
+                           {page.type === "blank" ? "Blank Sheet" : `Page ${page.originalIndex + 1}`}
+                         </span>
+                       </div>
++
++                      {/* Mobile action panel */}
++                      <div className="mt-2.5 flex items-center justify-between gap-1 w-full lg:hidden border-t border-slate-100 pt-2">
++                        <button
++                          type="button"
++                          disabled={idx === 0}
++                          onClick={(e) => {
++                            e.stopPropagation();
++                            movePage(idx, "left");
++                          }}
++                          className="p-1 text-slate-500 hover:text-indigo-650 hover:bg-slate-50 rounded-lg transition disabled:opacity-30 disabled:pointer-events-none"
++                          title="Move Left"
++                        >
++                          <ArrowLeft size={14} />
++                        </button>
++                        <button
++                          type="button"
++                          onClick={(e) => {
++                            e.stopPropagation();
++                            rotatePage(idx);
++                          }}
++                          className="p-1 text-slate-500 hover:text-orange-500 hover:bg-slate-50 rounded-lg transition"
++                          title="Rotate"
++                        >
++                          <RotateCw size={14} />
++                        </button>
++                        <button
++                          type="button"
++                          onClick={(e) => {
++                            e.stopPropagation();
++                            deletePage(idx);
++                          }}
++                          className="p-1 text-slate-500 hover:text-rose-600 hover:bg-slate-50 rounded-lg transition"
++                          title="Delete"
++                        >
++                          <Trash2 size={14} />
++                        </button>
++                        <button
++                          type="button"
++                          disabled={idx === pages.length - 1}
++                          onClick={(e) => {
++                            e.stopPropagation();
++                            movePage(idx, "right");
++                          }}
++                          className="p-1 text-slate-500 hover:text-indigo-650 hover:bg-slate-50 rounded-lg transition disabled:opacity-30 disabled:pointer-events-none"
++                          title="Move Right"
++                        >
++                          <ArrowRight size={14} />
++                        </button>
++                      </div>
+                     </div>
+ 
+                     {/* Inserts vertical guide line spacer-block */}

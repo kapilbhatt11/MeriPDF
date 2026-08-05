@@ -16,6 +16,51 @@ export default function HtmlToPdf() {
   const [showHelp, setShowHelp] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+
+  const handleClearUrlInput = () => {
+    setUrlInput("");
+    setPreviewUrl(null);
+    setPreviewError(false);
+  };
+
+  const handleLoadPreview = async () => {
+    if (!urlInput.trim()) return alert("Please enter a link first");
+    let targetUrl = urlInput.trim();
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      targetUrl = "http://" + targetUrl;
+    }
+
+    setPreviewLoading(true);
+    setPreviewError(false);
+    setPreviewUrl(null);
+
+    const formData = new FormData();
+    formData.append("url", targetUrl);
+
+    try {
+      const res = await axios.post(
+        api("/converters/url-preview"),
+        formData,
+        {
+          responseType: "blob",
+          headers: optionalAuthHeaders(),
+        }
+      );
+
+      const url = URL.createObjectURL(new Blob([res.data], { type: "image/jpeg" }));
+      setPreviewUrl(url);
+    } catch (e: unknown) {
+      console.error(e);
+      setPreviewError(true);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newFile = e.target.files[0];
@@ -159,7 +204,7 @@ export default function HtmlToPdf() {
       {/* Premium Tab Bar */}
       <div className="flex border-b border-slate-200 mb-8 max-w-5xl mx-auto gap-4">
         <button
-          onClick={() => { setActiveTab("file"); setDownloadUrl(null); }}
+          onClick={() => { setActiveTab("file"); setDownloadUrl(null); setPreviewUrl(null); setPreviewError(false); }}
           className={`pb-4 px-4 font-bold text-lg flex items-center gap-2 border-b-2 transition-all ${
             activeTab === "file"
               ? "border-violet-600 text-violet-600"
@@ -196,24 +241,105 @@ export default function HtmlToPdf() {
             <input ref={inputRef} type="file" accept=".html,.htm,text/html" className="hidden" onChange={handleFileChange} />
           </div>
         ) : (
-          <div className="bg-white border rounded-xl shadow p-8 min-h-[300px] flex flex-col justify-center">
-            <h3 className="text-xl font-bold text-slate-700 mb-2 flex items-center gap-2">
-              <Globe className="text-violet-600 w-6 h-6" />
-              Enter Web Page Address
-            </h3>
-            <p className="text-gray-500 mb-6 text-sm">
-              Paste a link to any website or static HTML page (e.g. <code>https://example.com</code>). 
-              We will format and convert it into a screen-compatible A4 PDF document.
-            </p>
-            <div className="flex flex-col gap-4">
-              <input
-                type="text"
-                placeholder="Enter URL (e.g., https://news.ycombinator.com)"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 px-4 outline-none focus:bg-white focus:border-violet-500 shadow-sm transition-all placeholder:text-slate-400 text-slate-800 font-medium"
-              />
+          <div className="space-y-6">
+            <div className="bg-white border rounded-xl shadow p-8 min-h-[300px] flex flex-col justify-center">
+              <h3 className="text-xl font-bold text-slate-700 mb-2 flex items-center gap-2">
+                <Globe className="text-violet-600 w-6 h-6" />
+                Enter Web Page Address
+              </h3>
+              <p className="text-gray-500 mb-6 text-sm">
+                Paste a link to any website or static HTML page (e.g. <code>https://example.com</code>). 
+                We will format and convert it into a screen-compatible A4 PDF document.
+              </p>
+              <div className="flex flex-col gap-4">
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    placeholder="Enter URL (e.g., https://news.ycombinator.com)"
+                    value={urlInput}
+                    onChange={(e) => {
+                      setUrlInput(e.target.value);
+                      if (previewUrl) setPreviewUrl(null);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 pl-4 pr-12 outline-none focus:bg-white focus:border-violet-500 shadow-sm transition-all placeholder:text-slate-400 text-slate-800 font-medium"
+                  />
+                  {urlInput && (
+                    <button
+                      type="button"
+                      onClick={handleClearUrlInput}
+                      className="absolute right-4 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors"
+                    >
+                      <X size={18} />
+                    </button>
+                  )}
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={handleLoadPreview}
+                  disabled={previewLoading || !urlInput.trim()}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {previewLoading ? (
+                    <Loader2 className="animate-spin w-4 h-4 text-slate-500" />
+                  ) : (
+                    <Globe size={16} />
+                  )}
+                  {previewLoading ? "Generating Preview..." : "Generate Webpage Preview"}
+                </button>
+              </div>
             </div>
+
+            {/* Premium Browser Mockup Webpage Preview Card */}
+            {(previewUrl || previewLoading || previewError) && (
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden animate-in fade-in slide-in-from-top-4">
+                <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <span className="w-3 h-3 rounded-full bg-red-400"></span>
+                      <span className="w-3 h-3 rounded-full bg-yellow-400"></span>
+                      <span className="w-3 h-3 rounded-full bg-green-400"></span>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-400 font-mono ml-2 truncate max-w-[220px] md:max-w-[320px]">
+                      {urlInput}
+                    </span>
+                  </div>
+                  {previewUrl && (
+                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0">
+                      Live Preview
+                    </span>
+                  )}
+                </div>
+
+                <div className="p-4 bg-slate-50 min-h-[220px] flex items-center justify-center relative overflow-hidden">
+                  {previewLoading && (
+                    <div className="flex flex-col items-center gap-3 text-slate-500 py-10">
+                      <Loader2 className="animate-spin w-8 h-8 text-violet-600 animate-duration-1000" />
+                      <p className="text-sm font-semibold">Capturing page styles and layout...</p>
+                    </div>
+                  )}
+
+                  {previewError && (
+                    <div className="text-center py-10 text-red-500">
+                      <X size={40} className="mx-auto mb-2 opacity-50 text-red-400" />
+                      <p className="text-sm font-bold">Failed to load preview</p>
+                      <p className="text-xs text-slate-400 mt-1">Make sure the URL is valid and accessible.</p>
+                    </div>
+                  )}
+
+                  {previewUrl && (
+                    <div className="w-full max-h-[400px] overflow-y-auto border border-slate-200 rounded-lg shadow-inner bg-white custom-scrollbar-styling">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={previewUrl}
+                        alt="Webpage Preview"
+                        className="w-full h-auto object-cover object-top"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -265,10 +391,26 @@ export default function HtmlToPdf() {
                 {loading ? "Converting..." : "Convert to PDF"}
               </button>
             ) : (
-              <button onClick={handleUrlConvert} disabled={loading || !urlInput.trim()} className="w-full bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 disabled:opacity-50 transition shadow-lg flex justify-center items-center gap-2 text-lg">
-                {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Globe className="w-5 h-5" />}
-                {loading ? "Converting Link..." : "Convert Link to PDF"}
-              </button>
+              <div className="space-y-3">
+                <button onClick={handleUrlConvert} disabled={loading || !urlInput.trim()} className="w-full bg-violet-600 text-white py-4 rounded-xl font-bold hover:bg-violet-700 disabled:opacity-50 transition shadow-lg flex justify-center items-center gap-2 text-lg">
+                  {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Globe className="w-5 h-5" />}
+                  {loading ? "Converting Link..." : "Convert Link to PDF"}
+                </button>
+
+                {(urlInput.trim() || previewUrl) && (
+                  <button
+                    onClick={() => {
+                      setUrlInput("");
+                      setPreviewUrl(null);
+                      setPreviewError(false);
+                      setDownloadUrl(null);
+                    }}
+                    className="w-full text-slate-500 hover:text-slate-700 font-semibold py-2.5 rounded-lg text-sm transition flex justify-center items-center gap-2 border border-slate-200 bg-white"
+                  >
+                    Clear Workspace
+                  </button>
+                )}
+              </div>
             )}
 
             {downloadUrl && (

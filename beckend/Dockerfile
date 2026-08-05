@@ -19,9 +19,7 @@ WORKDIR /app
 
 # Copy requirements and install
 COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
-RUN playwright install --with-deps chromium
-
+RUN pip install --no-cache-dir -r requirements.txt && playwright install --with-deps chromium
 
 # Copy backend app code
 COPY . /app
