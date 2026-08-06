@@ -12,6 +12,10 @@ export default function PdfToJpg() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.zip");
   const [mode, setMode] = useState<string>("pages");
+  const [dpi, setDpi] = useState<string>("150");
+  const [format, setFormat] = useState<string>("jpg");
+  const [pageRange, setPageRange] = useState<string>("");
+  const [targetKb, setTargetKb] = useState<string>("");
   const [showHelp, setShowHelp] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +40,12 @@ export default function PdfToJpg() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("mode", mode);
+    formData.append("dpi", dpi);
+    formData.append("format", format);
+    formData.append("page_range", pageRange);
+    if (targetKb) {
+      formData.append("target_kb", targetKb);
+    }
 
     try {
       const res = await axios.post(
@@ -48,11 +58,15 @@ export default function PdfToJpg() {
       );
 
       const contentDisposition = res.headers["content-disposition"] as string | undefined;
+      const contentType = res.data.type || res.headers["content-type"] || "";
       let filename = `Converted_${file.name.replace('.pdf', '')}.zip`;
       if (mode === "text" || mode === "text_ocr") {
         filename = `Extracted_Text_${file.name.replace('.pdf', '')}.txt`;
       } else if (mode === "images") {
         filename = `Extracted_Images_${file.name.replace('.pdf', '')}.zip`;
+      } else if (contentType.includes("image/")) {
+        const ext = format === "jpg" ? "jpg" : format;
+        filename = `Converted_${file.name.replace('.pdf', '')}.${ext}`;
       }
 
       if (contentDisposition) {
@@ -148,16 +162,97 @@ export default function PdfToJpg() {
                 onChange={(e) => setMode(e.target.value)}
                 className="p-2.5 border rounded-lg bg-slate-50 text-gray-700 font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
               >
-                <option value="pages">Convert Pages to JPG (ZIP)</option>
-                <option value="images">Extract Embedded Images (ZIP)</option>
+                <option value="pages">Convert Pages to JPG/PNG/WEBP (ZIP/Single Image)</option>
+                <option value="images">Extract Embedded Images (ZIP/Single Image)</option>
                 <option value="text">Extract Text Only (.TXT)</option>
                 <option value="text_ocr">Extract Text with OCR (Solves Hindi Font Issues)</option>
               </select>
             </div>
 
+            {/* Advanced Settings */}
+            {mode === "pages" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-gray-600">Image Format</label>
+                  <select
+                    value={format}
+                    onChange={(e) => setFormat(e.target.value)}
+                    className="p-2 border rounded-lg bg-slate-50 text-gray-700 text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
+                  >
+                    <option value="jpg">JPG (Best Compatibility)</option>
+                    <option value="png">PNG (Lossless Quality)</option>
+                    <option value="webp">WEBP (Optimized Weight)</option>
+                  </select>
+                </div>
+                
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-gray-600">Resolution (DPI)</label>
+                  <select
+                    value={dpi}
+                    onChange={(e) => setDpi(e.target.value)}
+                    className="p-2 border rounded-lg bg-slate-50 text-gray-700 text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
+                  >
+                    <option value="75">75 DPI (Low - Fast)</option>
+                    <option value="150">150 DPI (Standard)</option>
+                    <option value="300">300 DPI (High - Sharp)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {mode === "text_ocr" && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-600">OCR Resolution (DPI)</label>
+                <select
+                  value={dpi}
+                  onChange={(e) => setDpi(e.target.value)}
+                  className="p-2 border rounded-lg bg-slate-50 text-gray-700 text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
+                >
+                  <option value="150">150 DPI (Balanced)</option>
+                  <option value="300">300 DPI (High Accuracy)</option>
+                </select>
+              </div>
+            )}
+
+            {/* Page Range Selection */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-600 flex justify-between">
+                <span>Page Range (Optional)</span>
+                <span className="text-[10px] text-gray-400 font-normal">e.g. 1-3, 5, 8-10</span>
+              </label>
+              <input
+                type="text"
+                value={pageRange}
+                onChange={(e) => setPageRange(e.target.value)}
+                placeholder="All pages if blank"
+                className="p-2 border rounded-lg bg-slate-50 text-gray-700 text-sm font-medium shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
+              />
+            </div>
+
+            {/* Target KB Size Limit */}
+            {mode === "pages" && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-600 flex justify-between items-center">
+                  <span>Target Image Size Limit (Optional)</span>
+                  <span className="text-[10px] text-amber-600 font-semibold cursor-help" title="Iteratively optimizes quality & scale to meet size. (Only applies to JPG/WEBP)">How it works?</span>
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="number"
+                    value={targetKb}
+                    onChange={(e) => setTargetKb(e.target.value)}
+                    placeholder="Max KB size (e.g. 100)"
+                    min="10"
+                    className="w-full p-2 pr-12 border rounded-lg bg-slate-50 text-gray-700 text-sm font-medium shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
+                  />
+                  <span className="absolute right-3 text-xs font-bold text-gray-400 pointer-events-none">KB</span>
+                </div>
+              </div>
+            )}
+
             <button onClick={handleConvert} disabled={loading || !file} className="w-full bg-amber-600 text-white py-3 rounded-lg font-bold hover:bg-amber-700 disabled:opacity-50 transition shadow-md flex justify-center items-center gap-2">
               {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <Image className="w-5 h-5" />}
-              {loading ? "Processing (OCR takes longer)..." : (mode === "text" || mode === "text_ocr") ? "Extract Text" : mode === "images" ? "Extract Images" : "Convert to JPG"}
+              {loading ? "Processing (OCR takes longer)..." : (mode === "text" || mode === "text_ocr") ? "Extract Text" : mode === "images" ? "Extract Images" : "Convert PDF"}
             </button>
 
             {downloadUrl && (

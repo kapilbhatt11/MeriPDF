@@ -138,20 +138,120 @@ async def image_to_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------------------------------------------------
-# 🖼️ PDF to JPG (ZIP)
+# 🖼️ PDF to JPG (ZIP/Single Image)
 # ---------------------------------------------------------------------
+def parse_page_range(range_str: str, max_pages: int) -> list[int]:
+    if not range_str or not range_str.strip():
+        return list(range(max_pages))
+    
+    pages = set()
+    parts = range_str.replace(" ", "").split(",")
+    for part in parts:
+        if "-" in part:
+            try:
+                start_str, end_str = part.split("-")
+                start = int(start_str)
+                end = int(end_str)
+                start = max(1, min(start, max_pages))
+                end = max(1, min(end, max_pages))
+                for p in range(min(start, end), max(start, end) + 1):
+                    pages.add(p - 1)
+            except ValueError:
+                continue
+        else:
+            try:
+                p = int(part)
+                if 1 <= p <= max_pages:
+                    pages.add(p - 1)
+            except ValueError:
+                continue
+    return sorted(list(pages)) if pages else list(range(max_pages))
+
+def compress_to_size(img: Image.Image, target_bytes: int, fmt: str) -> bytes:
+    pil_format = fmt.upper()
+    if pil_format == "JPG":
+        pil_format = "JPEG"
+        
+    buf = io.BytesIO()
+    save_args = {"format": pil_format}
+    if pil_format in ["JPEG", "WEBP"]:
+        save_args["quality"] = 90
+        
+    try:
+        img.save(buf, **save_args)
+    except Exception:
+        img.save(buf, format="JPEG", quality=90)
+        pil_format = "JPEG"
+        
+    if buf.tell() <= target_bytes:
+        return buf.getvalue()
+        
+    if pil_format in ["JPEG", "WEBP"]:
+        low, high = 10, 90
+        best_bytes = None
+        for _ in range(6):
+            mid = (low + high) // 2
+            test_buf = io.BytesIO()
+            img.save(test_buf, format=pil_format, quality=mid)
+            size = test_buf.tell()
+            if size <= target_bytes:
+                best_bytes = test_buf.getvalue()
+                low = mid + 1
+            else:
+                high = mid - 1
+        if best_bytes:
+            return best_bytes
+
+    scale = 0.9
+    while scale >= 0.1:
+        w = max(1, int(img.width * scale))
+        h = max(1, int(img.height * scale))
+        resized = img.resize((w, h), Image.Resampling.LANCZOS)
+        
+        test_buf = io.BytesIO()
+        test_args = {"format": pil_format}
+        if pil_format in ["JPEG", "WEBP"]:
+            test_args["quality"] = 50
+        resized.save(test_buf, **test_args)
+        if test_buf.tell() <= target_bytes:
+            return test_buf.getvalue()
+        scale -= 0.15
+        
+    final_buf = io.BytesIO()
+    w = max(1, int(img.width * 0.1))
+    h = max(1, int(img.height * 0.1))
+    resized = img.resize((w, h), Image.Resampling.LANCZOS)
+    if pil_format in ["JPEG", "WEBP"]:
+        resized.save(final_buf, format=pil_format, quality=10)
+    else:
+        resized.save(final_buf, format=pil_format)
+    return final_buf.getvalue()
+
 @router.post("/pdf-to-jpg")
 async def pdf_to_jpg(
     file: UploadFile = File(...),
-    mode: str = Form("pages")
+    mode: str = Form("pages"),
+    dpi: int = Form(150),
+    format: str = Form("jpg"),
+    page_range: str = Form(""),
+    target_kb: str = Form(None)
 ):
     try:
         pdf_bytes = await file.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         
+        target_kb_val = None
+        if target_kb and target_kb.strip():
+            try:
+                target_kb_val = int(target_kb)
+            except ValueError:
+                pass
+                
+        pages_to_process = parse_page_range(page_range, len(doc))
+        
         if mode == "text":
             text_content = ""
-            for page_num in range(len(doc)):
+            for page_num in pages_to_process:
                 page = doc.load_page(page_num)
                 text_content += f"--- Page {page_num + 1} ---\n\n"
                 text_content += page.get_text("text") + "\n\n"
@@ -160,13 +260,14 @@ async def pdf_to_jpg(
             return StreamingResponse(
                 io.BytesIO(text_bytes),
                 media_type="text/plain",
-                headers={"Content-Disposition": "attachment; filename=Extracted_Text.txt"}
+                headers={"Content-Disposition": f"attachment; filename=Extracted_Text_{os.path.splitext(file.filename)[0]}.txt"}
             )
+            
         elif mode == "text_ocr":
             text_content = ""
-            for page_num in range(len(doc)):
+            for page_num in pages_to_process:
                 page = doc.load_page(page_num)
-                pix = page.get_pixmap(dpi=150)
+                pix = page.get_pixmap(dpi=dpi)
                 img = Image.open(io.BytesIO(pix.tobytes("jpeg")))
                 text = pytesseract.image_to_string(img, lang="hin+eng")
                 text_content += f"--- Page {page_num + 1} ---\n\n"
@@ -176,40 +277,111 @@ async def pdf_to_jpg(
             return StreamingResponse(
                 io.BytesIO(text_bytes),
                 media_type="text/plain",
-                headers={"Content-Disposition": "attachment; filename=Extracted_Text_OCR.txt"}
+                headers={"Content-Disposition": f"attachment; filename=Extracted_Text_OCR_{os.path.splitext(file.filename)[0]}.txt"}
             )
-        else:
+            
+        elif mode == "images":
+            extracted_images = []
+            img_count = 0
+            for page_num in pages_to_process:
+                page = doc.load_page(page_num)
+                image_list = page.get_images(full=True)
+                for img_index, img_info in enumerate(image_list):
+                    xref = img_info[0]
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image_ext = base_image["ext"]
+                    img_count += 1
+                    extracted_images.append((f"Image_{img_count}.{image_ext}", image_bytes))
+            
+            # Smart single page response for 1 extracted image
+            if len(extracted_images) == 1:
+                single_name, single_bytes = extracted_images[0]
+                ext = single_name.split(".")[-1]
+                mime_type = f"image/{ext}"
+                if ext == "jpg":
+                    mime_type = "image/jpeg"
+                return StreamingResponse(
+                    io.BytesIO(single_bytes),
+                    media_type=mime_type,
+                    headers={"Content-Disposition": f"attachment; filename={single_name}"}
+                )
+                
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w") as zipf:
-                if mode == "images":
-                    img_count = 0
-                    for page_num in range(len(doc)):
-                        page = doc.load_page(page_num)
-                        image_list = page.get_images(full=True)
-                        for img_index, img in enumerate(image_list):
-                            xref = img[0]
-                            base_image = doc.extract_image(xref)
-                            image_bytes = base_image["image"]
-                            image_ext = base_image["ext"]
-                            img_count += 1
-                            zipf.writestr(f"Image_{img_count}.{image_ext}", image_bytes)
-                    if img_count == 0:
-                        zipf.writestr("no_images_found.txt", b"No embedded images were found in this PDF.")
-                else:
-                    for page_num in range(len(doc)):
-                        page = doc.load_page(page_num)
-                        pix = page.get_pixmap(dpi=150)
-                        img_bytes = pix.tobytes("jpeg")
-                        zipf.writestr(f"Page_{page_num + 1}.jpg", img_bytes)
-                    
-            zip_buffer.seek(0)
+                for img_name, img_bytes in extracted_images:
+                    zipf.writestr(img_name, img_bytes)
+                if img_count == 0:
+                    zipf.writestr("no_images_found.txt", b"No embedded images were found in this PDF.")
             
-            filename = "Extracted_Images.zip" if mode == "images" else "Converted_Images.zip"
+            zip_buffer.seek(0)
+            filename = f"Extracted_Images_{os.path.splitext(file.filename)[0]}.zip"
             return StreamingResponse(
                 zip_buffer,
                 media_type="application/zip",
                 headers={"Content-Disposition": f"attachment; filename={filename}"}
             )
+            
+        else: # mode == "pages"
+            # Smart single page response for 1 page rendered
+            if len(pages_to_process) == 1:
+                page_num = pages_to_process[0]
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap(dpi=dpi)
+                img = Image.open(io.BytesIO(pix.tobytes("png")))
+                
+                if format == "jpg" and img.mode != "RGB":
+                    img = img.convert("RGB")
+                    
+                ext = "jpg" if format == "jpg" else format
+                pil_fmt = "JPEG" if format == "jpg" else format.upper()
+                mime_type = "image/jpeg" if format == "jpg" else f"image/{format}"
+                
+                if target_kb_val:
+                    img_bytes = compress_to_size(img, target_kb_val * 1024, ext)
+                else:
+                    buf = io.BytesIO()
+                    img.save(buf, format=pil_fmt)
+                    img_bytes = buf.getvalue()
+                    
+                filename = f"Page_{page_num + 1}.{ext}"
+                return StreamingResponse(
+                    io.BytesIO(img_bytes),
+                    media_type=mime_type,
+                    headers={"Content-Disposition": f"attachment; filename={filename}"}
+                )
+                
+            # Multiple pages zip response
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w") as zipf:
+                for page_num in pages_to_process:
+                    page = doc.load_page(page_num)
+                    pix = page.get_pixmap(dpi=dpi)
+                    img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    
+                    if format == "jpg" and img.mode != "RGB":
+                        img = img.convert("RGB")
+                        
+                    ext = "jpg" if format == "jpg" else format
+                    pil_fmt = "JPEG" if format == "jpg" else format.upper()
+                    
+                    if target_kb_val:
+                        img_bytes = compress_to_size(img, target_kb_val * 1024, ext)
+                    else:
+                        buf = io.BytesIO()
+                        img.save(buf, format=pil_fmt)
+                        img_bytes = buf.getvalue()
+                        
+                    zipf.writestr(f"Page_{page_num + 1}.{ext}", img_bytes)
+                    
+            zip_buffer.seek(0)
+            filename = f"Converted_Images_{os.path.splitext(file.filename)[0]}.zip"
+            return StreamingResponse(
+                zip_buffer,
+                media_type="application/zip",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {e}")
 
