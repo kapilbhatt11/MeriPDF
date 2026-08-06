@@ -172,60 +172,61 @@ def compress_to_size(img: Image.Image, target_bytes: int, fmt: str) -> bytes:
     if pil_format == "JPG":
         pil_format = "JPEG"
         
+    TARGET_QUALITY = 82
+    
     buf = io.BytesIO()
     save_args = {"format": pil_format}
     if pil_format in ["JPEG", "WEBP"]:
-        save_args["quality"] = 90
+        save_args["quality"] = TARGET_QUALITY
         
     try:
         img.save(buf, **save_args)
     except Exception:
-        img.save(buf, format="JPEG", quality=90)
+        img.save(buf, format="JPEG", quality=TARGET_QUALITY)
         pil_format = "JPEG"
         
     if buf.tell() <= target_bytes:
         return buf.getvalue()
         
-    if pil_format in ["JPEG", "WEBP"]:
-        low, high = 10, 90
-        best_bytes = None
-        for _ in range(6):
-            mid = (low + high) // 2
-            test_buf = io.BytesIO()
-            img.save(test_buf, format=pil_format, quality=mid)
-            size = test_buf.tell()
-            if size <= target_bytes:
-                best_bytes = test_buf.getvalue()
-                low = mid + 1
-            else:
-                high = mid - 1
-        if best_bytes:
-            return best_bytes
-
-    scale = 0.9
-    while scale >= 0.1:
-        w = max(1, int(img.width * scale))
-        h = max(1, int(img.height * scale))
+    # Scale down the image resolution while keeping quality high (visually sharp and crisp)
+    low_scale = 0.05
+    high_scale = 0.95
+    best_bytes = None
+    
+    for _ in range(6):
+        mid_scale = (low_scale + high_scale) / 2
+        w = max(1, int(img.width * mid_scale))
+        h = max(1, int(img.height * mid_scale))
         resized = img.resize((w, h), Image.Resampling.LANCZOS)
         
         test_buf = io.BytesIO()
         test_args = {"format": pil_format}
         if pil_format in ["JPEG", "WEBP"]:
-            test_args["quality"] = 50
+            test_args["quality"] = TARGET_QUALITY
+            
         resized.save(test_buf, **test_args)
-        if test_buf.tell() <= target_bytes:
-            return test_buf.getvalue()
-        scale -= 0.15
+        size = test_buf.tell()
         
-    final_buf = io.BytesIO()
-    w = max(1, int(img.width * 0.1))
-    h = max(1, int(img.height * 0.1))
+        if size <= target_bytes:
+            best_bytes = test_buf.getvalue()
+            low_scale = mid_scale + 0.02
+        else:
+            high_scale = mid_scale - 0.02
+            
+    if best_bytes:
+        return best_bytes
+        
+    # Fallback to extremely low dimensions with reduced quality if search failed
+    w = max(1, int(img.width * 0.05))
+    h = max(1, int(img.height * 0.05))
     resized = img.resize((w, h), Image.Resampling.LANCZOS)
+    final_buf = io.BytesIO()
     if pil_format in ["JPEG", "WEBP"]:
-        resized.save(final_buf, format=pil_format, quality=10)
+        resized.save(final_buf, format=pil_format, quality=60)
     else:
         resized.save(final_buf, format=pil_format)
     return final_buf.getvalue()
+
 
 @router.post("/pdf-to-jpg")
 async def pdf_to_jpg(
