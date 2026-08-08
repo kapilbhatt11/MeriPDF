@@ -662,7 +662,7 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             prs.slide_height = int(Pt(first_page.rect.height))
             
         # Safeguard processing count for OCR to avoid Render timeout / OOM
-        MAX_OCR_PAGES = 15
+        MAX_OCR_PAGES = 8
         ocr_processed = 0
         pages_to_process = parse_page_range(page_range, len(doc))
         for page_num in pages_to_process:
@@ -861,7 +861,7 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
         ws_created = False
         
         # Safeguard processing count for OCR to avoid Render timeout / OOM
-        MAX_OCR_PAGES = 15
+        MAX_OCR_PAGES = 8
         ocr_processed = 0
         pages_to_process = parse_page_range(page_range, len(doc))
         for page_num in pages_to_process:

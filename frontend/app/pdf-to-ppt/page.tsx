@@ -150,7 +150,7 @@ export default function PdfToPowerpoint() {
               />
               <p className="text-gray-400 text-xs mt-1">
                 Specify a range to convert specific sections. Leave empty to convert all.
-                (OCR limits max 15 scanned pages per request).
+                (OCR limits max 8 scanned pages per request).
               </p>
             </div>
           )}
