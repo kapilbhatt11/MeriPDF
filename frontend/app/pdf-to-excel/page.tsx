@@ -12,7 +12,6 @@ export default function PdfToExcel() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.xlsx");
   const [showHelp, setShowHelp] = useState(false);
-  const [pageRange, setPageRange] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,9 +34,6 @@ export default function PdfToExcel() {
 
     const formData = new FormData();
     formData.append("file", file);
-    if (pageRange) {
-      formData.append("page_range", pageRange);
-    }
 
     try {
       const res = await axios.post(
@@ -130,28 +126,9 @@ export default function PdfToExcel() {
                   <span className="font-semibold text-sm text-gray-700 truncate">{file.name}</span>
                 </div>
               </div>
-              <button onClick={() => {setFile(null); setDownloadUrl(null); setPageRange("");}} className="text-gray-400 hover:text-red-500 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+              <button onClick={() => {setFile(null); setDownloadUrl(null);}} className="text-gray-400 hover:text-red-500 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
                 <X size={16} />
               </button>
-            </div>
-          )}
-
-          {file && (
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Page Range (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 1-10, 15, 20-30"
-                value={pageRange}
-                onChange={(e) => setPageRange(e.target.value)}
-                className="w-full border rounded-lg p-2.5 text-sm outline-none focus:border-green-500 text-gray-800"
-              />
-              <p className="text-gray-400 text-xs mt-1">
-                Specify a range to convert specific sections. Leave empty to convert all.
-                (OCR limits max 8 scanned pages per request).
-              </p>
             </div>
           )}
 

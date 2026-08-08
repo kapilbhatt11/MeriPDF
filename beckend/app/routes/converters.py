@@ -1,7 +1,6 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse
 import tempfile
-import asyncio
 import os
 from PIL import Image
 try:
@@ -413,268 +412,11 @@ async def pdf_to_word(file: UploadFile = File(...)):
         print("PDF to Word Error:", e)
         raise HTTPException(status_code=500, detail=f"Failed to convert PDF to Word: {e}")
 
-def page_needs_ocr(page) -> bool:
-    text = page.get_text("text").strip()
-    if not text:
-        return True
-    
-    # Check if a lot of replacement chars or dots are present
-    special_chars = text.count("·") + text.count(chr(0xfffd)) + text.count("•")
-    alnum_chars = sum(1 for c in text if c.isalnum())
-    
-    if alnum_chars < 5:
-        return True
-        
-    if special_chars > 0.4 * (len(text) + 1):
-        return True
-        
-    # Check for corrupt Unicode characters (outside standard ASCII/Devanagari/common signs)
-    # This detects Indic documents with corrupt translation tables/obscure unicode points
-    corrupt_count = 0
-    for char in text:
-        o = ord(char)
-        if o <= 127:
-            continue
-        if 0x0900 <= o <= 0x097F:
-            continue
-        if 0x2000 <= o <= 0x206F:
-            continue
-        if 0x20A0 <= o <= 0x20CF:
-            continue
-        corrupt_count += 1
-        
-    if corrupt_count > 5:
-        return True
-        
-    # Check for legacy fonts (e.g. KrutiDev, Devlys, Shusha)
-    try:
-        page_dict = page.get_text("dict")
-        for block in page_dict.get("blocks", []):
-            if block.get("type") == 0:
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        font_lower = span.get("font", "").lower()
-                        if any(x in font_lower for x in ["kruti", "devlys", "shusha", "chanakya", "shivaji"]):
-                            return True
-    except Exception:
-        pass
-        
-    return False
-
-def get_page_elements(page, force_ocr=False):
-    should_ocr = force_ocr or page_needs_ocr(page)
-    if should_ocr:
-        try:
-            pix = page.get_pixmap(dpi=150)
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
-            
-            # Preprocessing to improve OCR accuracy on small texts
-            if min(img.size) < 800:
-                img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
-                
-            # Optimize language based on characters present
-            try:
-                raw_text = page.get_text("text")
-                has_hindi = any(0x0900 <= ord(c) <= 0x097F for c in raw_text)
-                lang = "hin" if has_hindi else "eng"
-            except Exception:
-                lang = "hin+eng"
-                
-            ocr_data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
-            
-            blocks_map = {}
-            n_boxes = len(ocr_data['level'])
-            
-            to_points_x = page.rect.width / pix.width
-            to_points_y = page.rect.height / pix.height
-            
-            for i in range(n_boxes):
-                text = ocr_data['text'][i].strip()
-                conf = float(ocr_data['conf'][i]) if ocr_data['conf'][i] != -1 else 0.0
-                if not text or conf < 30:
-                    continue
-                    
-                block_num = ocr_data['block_num'][i]
-                line_num = ocr_data['line_num'][i]
-                
-                l_pix = ocr_data['left'][i]
-                t_pix = ocr_data['top'][i]
-                w_pix = ocr_data['width'][i]
-                h_pix = ocr_data['height'][i]
-                
-                tx0 = l_pix * to_points_x
-                ty0 = t_pix * to_points_y
-                tx1 = (l_pix + w_pix) * to_points_x
-                ty1 = (t_pix + h_pix) * to_points_y
-                
-                key = (block_num, line_num)
-                if key not in blocks_map:
-                    blocks_map[key] = {
-                        "words": [],
-                        "bbox": [tx0, ty0, tx1, ty1]
-                    }
-                else:
-                    bbox = blocks_map[key]["bbox"]
-                    bbox[0] = min(bbox[0], tx0)
-                    bbox[1] = min(bbox[1], ty0)
-                    bbox[2] = max(bbox[2], tx1)
-                    bbox[3] = max(bbox[3], ty1)
-                    
-                blocks_map[key]["words"].append({
-                    "text": text,
-                    "bbox": (tx0, ty0, tx1, ty1)
-                })
-                
-            synthetic_blocks = []
-            block_groups = {}
-            for (block_num, line_num), line_data in blocks_map.items():
-                if block_num not in block_groups:
-                    block_groups[block_num] = []
-                    block_groups[block_num].append(line_data)
-                else:
-                    block_groups[block_num].append(line_data)
-                
-            for block_num, lines in block_groups.items():
-                synthetic_lines = []
-                bx0 = min(l["bbox"][0] for l in lines)
-                by0 = min(l["bbox"][1] for l in lines)
-                bx1 = max(l["bbox"][2] for l in lines)
-                by1 = max(l["bbox"][3] for l in lines)
-                
-                for line_data in lines:
-                    lx0, ly0, lx1, ly1 = line_data["bbox"]
-                    
-                    # Sort words horizontally
-                    words = sorted(line_data["words"], key=lambda w: w["bbox"][0])
-                    spans = []
-                    if words:
-                        curr_span = {
-                            "text": words[0]["text"],
-                            "bbox": list(words[0]["bbox"])
-                        }
-                        for w in words[1:]:
-                            wx0, wy0, wx1, wy1 = w["bbox"]
-                            # If they are close horizontally, merge them
-                            if wx0 - curr_span["bbox"][2] <= 18:
-                                curr_span["text"] += " " + w["text"]
-                                curr_span["bbox"][2] = max(curr_span["bbox"][2], wx1)
-                                curr_span["bbox"][1] = min(curr_span["bbox"][1], wy0)
-                                curr_span["bbox"][3] = max(curr_span["bbox"][3], wy1)
-                            else:
-                                spans.append(curr_span)
-                                curr_span = {
-                                    "text": w["text"],
-                                    "bbox": list(w["bbox"])
-                                }
-                        spans.append(curr_span)
-                    
-                    # Convert to PyMuPDF dictionary spans format
-                    synthetic_spans = []
-                    for s in spans:
-                        sx0, sy0, sx1, sy1 = s["bbox"]
-                        synthetic_spans.append({
-                            "text": s["text"],
-                            "font": "Arial",
-                            "size": (sy1 - sy0) * 0.8,
-                            "color": 0,
-                            "flags": 0,
-                            "bbox": (sx0, sy0, sx1, sy1)
-                        })
-                        
-                    synthetic_lines.append({
-                        "bbox": (lx0, ly0, lx1, ly1),
-                        "spans": synthetic_spans
-                    })
-                    
-                synthetic_blocks.append({
-                    "type": 0,
-                    "bbox": (bx0, by0, bx1, by1),
-                    "lines": synthetic_lines
-                })
-                
-            try:
-                page_dict = page.get_text("dict")
-                image_blocks = [b for b in page_dict.get("blocks", []) if b.get("type") == 1]
-                synthetic_blocks.extend(image_blocks)
-            except Exception:
-                pass
-                
-            return {"blocks": synthetic_blocks}
-        except Exception as e:
-            print("OCR Layout parsing failed, falling back to standard extraction:", e)
-            try:
-                return page.get_text("dict")
-            except Exception:
-                return {"blocks": []}
-    else:
-        try:
-            return page.get_text("dict")
-        except Exception:
-            return {"blocks": []}
-
-def parse_page_range(range_str: str, max_pages: int):
-    if not range_str:
-        return list(range(max_pages))
-    
-    pages = set()
-    parts = range_str.split(",")
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            try:
-                start, end = part.split("-")
-                start_idx = int(start.strip()) - 1
-                end_idx = int(end.strip()) - 1
-                start_idx = max(0, min(start_idx, max_pages - 1))
-                end_idx = max(0, min(end_idx, max_pages - 1))
-                if start_idx <= end_idx:
-                    pages.update(range(start_idx, end_idx + 1))
-                else:
-                    pages.update(range(end_idx, start_idx + 1))
-            except ValueError:
-                pass
-        else:
-            try:
-                p = int(part) - 1
-                if 0 <= p < max_pages:
-                    pages.add(p)
-            except ValueError:
-                pass
-                
-    return sorted(list(pages)) if pages else list(range(max_pages))
-
 # ---------------------------------------------------------------------
 # 📊 PDF to POWERPOINT (.pptx)
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-ppt")
-async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None)):
-    from pptx.enum.shapes import MSO_SHAPE
-
-    def map_font_name(pdf_font_name: str) -> str:
-        if not pdf_font_name:
-            return "Arial"
-        name = pdf_font_name.lower()
-        if "calibri" in name:
-            return "Calibri"
-        elif "times" in name or "liberation serif" in name or "georgia" in name:
-            return "Times New Roman"
-        elif "arial" in name or "helvetica" in name or "helv" in name or "nimbus" in name or "sans" in name:
-            return "Arial"
-        elif "courier" in name or "mono" in name or "consolas" in name:
-            return "Courier New"
-        elif "cambria" in name:
-            return "Cambria"
-        elif "garamond" in name:
-            return "Garamond"
-        elif "verdana" in name:
-            return "Verdana"
-        elif "trebuchet" in name:
-            return "Trebuchet MS"
-        return "Arial"
-
+async def pdf_to_ppt(file: UploadFile = File(...)):
     try:
         temp_dir = tempfile.gettempdir()
         pdf_bytes = await file.read()
@@ -690,11 +432,7 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             prs.slide_width = int(Pt(first_page.rect.width))
             prs.slide_height = int(Pt(first_page.rect.height))
             
-        # Safeguard processing count for OCR to avoid Render timeout / OOM
-        MAX_OCR_PAGES = 8
-        ocr_processed = 0
-        pages_to_process = parse_page_range(page_range, len(doc))
-        for page_num in pages_to_process:
+        for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             slide = prs.slides.add_slide(blank_slide_layout)
             
@@ -705,107 +443,72 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             scale_x = prs.slide_width / Pt(pdf_width) if pdf_width else 1.0
             scale_y = prs.slide_height / Pt(pdf_height) if pdf_height else 1.0
             
-            # Page Text & Image Blocks
-            needs_ocr = page_needs_ocr(page)
-            if needs_ocr:
-                if ocr_processed >= MAX_OCR_PAGES:
-                    # Skip OCR for remaining pages and use standard extraction
-                    # to prevent Render 100s timeout
-                    page_dict = page.get_text("dict")
-                else:
-                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
-                    ocr_processed += 1
-            else:
-                page_dict = page.get_text("dict")
-                
+            page_dict = page.get_text("dict")
             for block in page_dict.get("blocks", []):
-                bx0, by0, bx1, by1 = block.get("bbox", (0, 0, 0, 0))
+                x0, y0, x1, y1 = block.get("bbox", (0, 0, 0, 0))
+                
+                left = int(Pt(x0) * scale_x)
+                top = int(Pt(y0) * scale_y)
+                width = int(Pt(x1 - x0) * scale_x)
+                height = int(Pt(y1 - y0) * scale_y)
                 
                 # Text Block
                 if block.get("type") == 0:
-                    # Sanitize coordinates
-                    if bx0 >= bx1 or by0 >= by1:
-                        continue
-                    if not (-5000 <= bx0 <= 5000 and -5000 <= by0 <= 5000 and -5000 <= bx1 <= 5000 and -5000 <= by1 <= 5000):
-                        continue
-                        
-                    left = int(Pt(bx0) * scale_x)
-                    top = int(Pt(by0) * scale_y)
-                    width = int(Pt(bx1 - bx0) * scale_x)
-                    height = int(Pt(by1 - by0) * scale_y)
+                    lines = block.get("lines", [])
+                    if not lines: continue
                     
                     # Protect against zero width/height
-                    if width <= 0: width = Pt(100)
+                    if width <= 0: width = Pt(50)
                     if height <= 0: height = Pt(20)
                     
-                    try:
-                        txBox = slide.shapes.add_textbox(left, top, width, height)
-                        tf = txBox.text_frame
-                        tf.word_wrap = True
-                        tf.clear()
+                    txBox = slide.shapes.add_textbox(left, top, width, height)
+                    tf = txBox.text_frame
+                    tf.word_wrap = True
+                    tf.clear() # Clear default empty paragraph
+                    
+                    for line in lines:
+                        p = tf.add_paragraph()
+                        # Simple alignment heuristic based on line vs block bbox
+                        # For exactness, PPTx alignment is tricky, so we stick to Left by default
                         
-                        tf.margin_left = Pt(0)
-                        tf.margin_right = Pt(0)
-                        tf.margin_top = Pt(0)
-                        tf.margin_bottom = Pt(0)
+                        for span in line.get("spans", []):
+                            text = span.get("text", "")
+                            if not text.strip(): # Skip entirely empty spans to save objects, but keep spaces if needed
+                                if text: p.add_run().text = text
+                                continue
+                                
+                            run = p.add_run()
+                            run.text = text
+                            
+                            # Extract and set font size
+                            font_size = span.get("size", 12)
+                            # scale font size vertically
+                            run.font.size = int(Pt(font_size) * scale_y) 
+                            
+                            # We can also attempt to read color
+                            color_int = span.get("color", 0)
+                            # PyMuPDF color is sRGB integer: (R << 16) + (G << 8) + B
+                            if type(color_int) == int:
+                                b = color_int & 255
+                                g = (color_int >> 8) & 255
+                                r = (color_int >> 16) & 255
+                                run.font.color.rgb = RGBColor(r, g, b)
+                                
+                            # Basic Font flags: 16 (bold), 2 (italic)
+                            flags = span.get("flags", 0)
+                            if flags & 16:
+                                run.font.bold = True
+                            if flags & 2:
+                                run.font.italic = True
                         
-                        is_first_line = True
-                        for line in block.get("lines", []):
-                            if is_first_line:
-                                p = tf.paragraphs[0]
-                                is_first_line = False
-                            else:
-                                p = tf.add_paragraph()
-                                
-                            p.space_after = Pt(0)
-                            p.space_before = Pt(0)
-                            
-                            for span in line.get("spans", []):
-                                text = span.get("text", "")
-                                if not text:
-                                    continue
-                                    
-                                run = p.add_run()
-                                run.text = text
-                                
-                                # Font Name mapping
-                                font_family = span.get("font", "Arial")
-                                run.font.name = map_font_name(font_family)
-                                
-                                # Font Size scaling
-                                font_size = span.get("size", 11)
-                                run.font.size = int(Pt(font_size) * scale_y)
-                                
-                                # Color mapping
-                                color_val = span.get("color", 0)
-                                if isinstance(color_val, int):
-                                    b = color_val & 255
-                                    g = (color_val >> 8) & 255
-                                    r = (color_val >> 16) & 255
-                                    run.font.color.rgb = RGBColor(r, g, b)
-                                    
-                                # Style flags (16 is Bold, 2 is Italic)
-                                flags = span.get("flags", 0)
-                                if flags & 16:
-                                    run.font.bold = True
-                                if flags & 2:
-                                    run.font.italic = True
-                    except Exception as e:
-                        print("Warning rendering block in PPTX:", e)
-                            
                 # Image Block
                 elif block.get("type") == 1:
                     img_bytes = block.get("image")
                     if img_bytes:
                         img_ext = block.get("ext", "png")
-                        tmp_img_path = os.path.join(temp_dir, f"tmp_ppt_img_{page_num}_{int(bx0)}.{img_ext}")
+                        tmp_img_path = os.path.join(temp_dir, f"tmp_ppt_img_{page_num}_{int(x0)}.{img_ext}")
                         with open(tmp_img_path, "wb") as img_file:
                             img_file.write(img_bytes)
-                        
-                        left = int(Pt(bx0) * scale_x)
-                        top = int(Pt(by0) * scale_y)
-                        width = int(Pt(bx1 - bx0) * scale_x)
-                        height = int(Pt(by1 - by0) * scale_y)
                         
                         try:
                             # Protect against zero width/height
@@ -836,7 +539,7 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
 # 📈 PDF to EXCEL (.xlsx)
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-excel")
-async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None)):
+async def pdf_to_excel(file: UploadFile = File(...)):
     try:
         temp_dir = tempfile.gettempdir()
         pdf_path = os.path.join(temp_dir, f"tmp_excel_{file.filename}")
@@ -850,25 +553,11 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
         wb = Workbook()
         ws_created = False
         
-        # Safeguard processing count for OCR to avoid Render timeout / OOM
-        MAX_OCR_PAGES = 8
-        ocr_processed = 0
-        pages_to_process = parse_page_range(page_range, len(doc))
-        for page_num in pages_to_process:
+        for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             
             # Use 'dict' to get full styling info: blocks -> lines -> spans
-            needs_ocr = page_needs_ocr(page)
-            if needs_ocr:
-                if ocr_processed >= MAX_OCR_PAGES:
-                    # Skip OCR for remaining pages and use standard extraction
-                    # to prevent Render 100s timeout
-                    page_dict = page.get_text("dict")
-                else:
-                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
-                    ocr_processed += 1
-            else:
-                page_dict = page.get_text("dict")
+            page_dict = page.get_text("dict")
             all_elements = []
             
             for block in page_dict.get("blocks", []):
