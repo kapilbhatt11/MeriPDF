@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse
 import tempfile
+import asyncio
 import os
 from PIL import Image
 try:
@@ -460,8 +461,9 @@ def page_needs_ocr(page) -> bool:
         
     return False
 
-def get_page_elements(page):
-    if page_needs_ocr(page):
+def get_page_elements(page, force_ocr=False):
+    should_ocr = force_ocr or page_needs_ocr(page)
+    if should_ocr:
         try:
             pix = page.get_pixmap(dpi=150)
             img_data = pix.tobytes("png")
@@ -471,7 +473,15 @@ def get_page_elements(page):
             if min(img.size) < 800:
                 img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
                 
-            ocr_data = pytesseract.image_to_data(img, lang="hin+eng", output_type=pytesseract.Output.DICT)
+            # Optimize language based on characters present
+            try:
+                raw_text = page.get_text("text")
+                has_hindi = any(0x0900 <= ord(c) <= 0x097F for c in raw_text)
+                lang = "hin" if has_hindi else "eng"
+            except Exception:
+                lang = "hin+eng"
+                
+            ocr_data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
             
             blocks_map = {}
             n_boxes = len(ocr_data['level'])
@@ -618,6 +628,9 @@ async def pdf_to_ppt(file: UploadFile = File(...)):
             prs.slide_width = int(Pt(first_page.rect.width))
             prs.slide_height = int(Pt(first_page.rect.height))
             
+        # Safeguard processing count for OCR to avoid Render timeout / OOM
+        MAX_OCR_PAGES = 15
+        ocr_processed = 0
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             slide = prs.slides.add_slide(blank_slide_layout)
@@ -672,7 +685,18 @@ async def pdf_to_ppt(file: UploadFile = File(...)):
                             pass
             
             # 2. Page Text & Image Blocks
-            page_dict = get_page_elements(page)
+            needs_ocr = page_needs_ocr(page)
+            if needs_ocr:
+                if ocr_processed >= MAX_OCR_PAGES:
+                    # Skip OCR for remaining pages and use standard extraction
+                    # to prevent Render 100s timeout
+                    page_dict = page.get_text("dict")
+                else:
+                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
+                    ocr_processed += 1
+            else:
+                page_dict = page.get_text("dict")
+                
             for block in page_dict.get("blocks", []):
                 bx0, by0, bx1, by1 = block.get("bbox", (0, 0, 0, 0))
                 
@@ -802,11 +826,24 @@ async def pdf_to_excel(file: UploadFile = File(...)):
         wb = Workbook()
         ws_created = False
         
+        # Safeguard processing count for OCR to avoid Render timeout / OOM
+        MAX_OCR_PAGES = 15
+        ocr_processed = 0
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             
             # Use 'dict' to get full styling info: blocks -> lines -> spans
-            page_dict = get_page_elements(page)
+            needs_ocr = page_needs_ocr(page)
+            if needs_ocr:
+                if ocr_processed >= MAX_OCR_PAGES:
+                    # Skip OCR for remaining pages and use standard extraction
+                    # to prevent Render 100s timeout
+                    page_dict = page.get_text("dict")
+                else:
+                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
+                    ocr_processed += 1
+            else:
+                page_dict = page.get_text("dict")
             all_elements = []
             
             for block in page_dict.get("blocks", []):
