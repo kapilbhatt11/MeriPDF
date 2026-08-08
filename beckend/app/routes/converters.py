@@ -417,6 +417,30 @@ async def pdf_to_word(file: UploadFile = File(...)):
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-ppt")
 async def pdf_to_ppt(file: UploadFile = File(...)):
+    from pptx.enum.shapes import MSO_SHAPE
+
+    def map_font_name(pdf_font_name: str) -> str:
+        if not pdf_font_name:
+            return "Arial"
+        name = pdf_font_name.lower()
+        if "calibri" in name:
+            return "Calibri"
+        elif "times" in name or "liberation serif" in name or "georgia" in name:
+            return "Times New Roman"
+        elif "arial" in name or "helvetica" in name or "helv" in name or "nimbus" in name or "sans" in name:
+            return "Arial"
+        elif "courier" in name or "mono" in name or "consolas" in name:
+            return "Courier New"
+        elif "cambria" in name:
+            return "Cambria"
+        elif "garamond" in name:
+            return "Garamond"
+        elif "verdana" in name:
+            return "Verdana"
+        elif "trebuchet" in name:
+            return "Trebuchet MS"
+        return "Arial"
+
     try:
         temp_dir = tempfile.gettempdir()
         pdf_bytes = await file.read()
@@ -443,72 +467,135 @@ async def pdf_to_ppt(file: UploadFile = File(...)):
             scale_x = prs.slide_width / Pt(pdf_width) if pdf_width else 1.0
             scale_y = prs.slide_height / Pt(pdf_height) if pdf_height else 1.0
             
+            # 1. Background Vector Drawings (tables, structural borders, sidebars, shapes)
+            try:
+                drawings = page.get_drawings()
+            except Exception:
+                drawings = []
+                
+            # Cap vector shapes to avoid performance issues in PowerPoint
+            if len(drawings) < 150:
+                for d in drawings:
+                    rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                    # Sanitize coords
+                    if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
+                        continue
+                    dw = rx1 - rx0
+                    dh = ry1 - ry0
+                    if dw > 0.5 and dh > 0.5:
+                        left = int(Pt(rx0) * scale_x)
+                        top = int(Pt(ry0) * scale_y)
+                        width = int(Pt(dw) * scale_x)
+                        height = int(Pt(dh) * scale_y)
+                        
+                        try:
+                            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                            
+                            # Set solid background fill if present
+                            if d.get("fill"):
+                                fr, fg, fb = d["fill"]
+                                shape.fill.solid()
+                                shape.fill.fore_color.rgb = RGBColor(int(fr*255), int(fg*255), int(fb*255))
+                            else:
+                                shape.fill.background()
+                                
+                            # Set outline borders / column/row lines
+                            if d.get("color") and d.get("width", 0) > 0:
+                                sr, sg, sb = d["color"]
+                                shape.line.color.rgb = RGBColor(int(sr*255), int(sg*255), int(sb*255))
+                                shape.line.width = int(Pt(d["width"]) * scale_y)
+                            else:
+                                shape.line.fill.background()
+                        except Exception:
+                            pass
+            
+            # 2. Page Text & Image Blocks
             page_dict = page.get_text("dict")
             for block in page_dict.get("blocks", []):
-                x0, y0, x1, y1 = block.get("bbox", (0, 0, 0, 0))
-                
-                left = int(Pt(x0) * scale_x)
-                top = int(Pt(y0) * scale_y)
-                width = int(Pt(x1 - x0) * scale_x)
-                height = int(Pt(y1 - y0) * scale_y)
+                bx0, by0, bx1, by1 = block.get("bbox", (0, 0, 0, 0))
                 
                 # Text Block
                 if block.get("type") == 0:
-                    lines = block.get("lines", [])
-                    if not lines: continue
-                    
-                    # Protect against zero width/height
-                    if width <= 0: width = Pt(50)
-                    if height <= 0: height = Pt(20)
-                    
-                    txBox = slide.shapes.add_textbox(left, top, width, height)
-                    tf = txBox.text_frame
-                    tf.word_wrap = True
-                    tf.clear() # Clear default empty paragraph
-                    
-                    for line in lines:
-                        p = tf.add_paragraph()
-                        # Simple alignment heuristic based on line vs block bbox
-                        # For exactness, PPTx alignment is tricky, so we stick to Left by default
+                    for line in block.get("lines", []):
+                        lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
                         
-                        for span in line.get("spans", []):
-                            text = span.get("text", "")
-                            if not text.strip(): # Skip entirely empty spans to save objects, but keep spaces if needed
-                                if text: p.add_run().text = text
-                                continue
-                                
-                            run = p.add_run()
-                            run.text = text
+                        # Sanitize coordinates
+                        if lx0 >= lx1 or ly0 >= ly1:
+                            continue
+                        if not (-5000 <= lx0 <= 5000 and -5000 <= ly0 <= 5000 and -5000 <= lx1 <= 5000 and -5000 <= ly1 <= 5000):
+                            continue
                             
-                            # Extract and set font size
-                            font_size = span.get("size", 12)
-                            # scale font size vertically
-                            run.font.size = int(Pt(font_size) * scale_y) 
-                            
-                            # We can also attempt to read color
-                            color_int = span.get("color", 0)
-                            # PyMuPDF color is sRGB integer: (R << 16) + (G << 8) + B
-                            if type(color_int) == int:
-                                b = color_int & 255
-                                g = (color_int >> 8) & 255
-                                r = (color_int >> 16) & 255
-                                run.font.color.rgb = RGBColor(r, g, b)
-                                
-                            # Basic Font flags: 16 (bold), 2 (italic)
-                            flags = span.get("flags", 0)
-                            if flags & 16:
-                                run.font.bold = True
-                            if flags & 2:
-                                run.font.italic = True
+                        left = int(Pt(lx0) * scale_x)
+                        top = int(Pt(ly0) * scale_y)
+                        width = int(Pt(lx1 - lx0) * scale_x)
+                        height = int(Pt(ly1 - ly0) * scale_y)
                         
+                        # Protect against zero width/height
+                        if width <= 0: width = Pt(50)
+                        if height <= 0: height = Pt(15)
+                        
+                        try:
+                            txBox = slide.shapes.add_textbox(left, top, width, height)
+                            tf = txBox.text_frame
+                            tf.word_wrap = False  # Disable wrapping to avoid stacking text flows on PDF page
+                            tf.clear()
+                            
+                            # Remove default internal padding/margins for exact replica positioning
+                            tf.margin_left = Pt(0)
+                            tf.margin_right = Pt(0)
+                            tf.margin_top = Pt(0)
+                            tf.margin_bottom = Pt(0)
+                            
+                            p = tf.paragraphs[0]
+                            p.space_after = Pt(0)
+                            p.space_before = Pt(0)
+                            
+                            for span in line.get("spans", []):
+                                text = span.get("text", "")
+                                if not text:
+                                    continue
+                                    
+                                run = p.add_run()
+                                run.text = text
+                                
+                                # Font Name mapping
+                                font_family = span.get("font", "Arial")
+                                run.font.name = map_font_name(font_family)
+                                
+                                # Font Size scaling
+                                font_size = span.get("size", 11)
+                                run.font.size = int(Pt(font_size) * scale_y)
+                                
+                                # Color mapping
+                                color_val = span.get("color", 0)
+                                if isinstance(color_val, int):
+                                    b = color_val & 255
+                                    g = (color_val >> 8) & 255
+                                    r = (color_val >> 16) & 255
+                                    run.font.color.rgb = RGBColor(r, g, b)
+                                    
+                                # Style flags (16 is Bold, 2 is Italic)
+                                flags = span.get("flags", 0)
+                                if flags & 16:
+                                    run.font.bold = True
+                                if flags & 2:
+                                    run.font.italic = True
+                        except Exception as e:
+                            print("Warning rendering line in PPTX:", e)
+                            
                 # Image Block
                 elif block.get("type") == 1:
                     img_bytes = block.get("image")
                     if img_bytes:
                         img_ext = block.get("ext", "png")
-                        tmp_img_path = os.path.join(temp_dir, f"tmp_ppt_img_{page_num}_{int(x0)}.{img_ext}")
+                        tmp_img_path = os.path.join(temp_dir, f"tmp_ppt_img_{page_num}_{int(bx0)}.{img_ext}")
                         with open(tmp_img_path, "wb") as img_file:
                             img_file.write(img_bytes)
+                        
+                        left = int(Pt(bx0) * scale_x)
+                        top = int(Pt(by0) * scale_y)
+                        width = int(Pt(bx1 - bx0) * scale_x)
+                        height = int(Pt(by1 - by0) * scale_y)
                         
                         try:
                             # Protect against zero width/height
