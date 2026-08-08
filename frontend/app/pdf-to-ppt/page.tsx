@@ -9,6 +9,7 @@ import { logPDFOperation } from "@/lib/analytics";
 export default function PdfToPowerpoint() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pageRange, setPageRange] = useState<string>("");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.pptx");
   const [showHelp, setShowHelp] = useState(false);
@@ -34,6 +35,9 @@ export default function PdfToPowerpoint() {
 
     const formData = new FormData();
     formData.append("file", file);
+    if (pageRange) {
+      formData.append("page_range", pageRange);
+    }
 
     try {
       const res = await axios.post(
@@ -126,9 +130,27 @@ export default function PdfToPowerpoint() {
                   <span className="font-semibold text-sm text-gray-700 truncate">{file.name}</span>
                 </div>
               </div>
-              <button onClick={() => {setFile(null); setDownloadUrl(null);}} className="text-gray-400 hover:text-red-500 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+              <button onClick={() => {setFile(null); setDownloadUrl(null); setPageRange("");}} className="text-gray-400 hover:text-red-500 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
                 <X size={16} />
               </button>
+            </div>
+          )}
+
+          {file && (
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Page Range (Optional)
+              </label>
+              <input
+                type="text"
+                value={pageRange}
+                onChange={(e) => setPageRange(e.target.value)}
+                placeholder="e.g. 1-5, 8, 11-15 (Max 8 OCR/scan pages)"
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 text-sm"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Specifying ranges allows converting large government PDFs fast without Render proxy timeouts.
+              </p>
             </div>
           )}
 
