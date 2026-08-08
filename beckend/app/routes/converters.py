@@ -673,6 +673,17 @@ def parse_page_range(range_str: str, max_pages: int) -> list[int]:
 @router.post("/pdf-to-ppt")
 async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None)):
     from pptx.enum.shapes import MSO_SHAPE
+    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+    from pptx.oxml import parse_xml
+
+    def set_pptx_cell_border(cell, color_hex="808080", width_str="12700"):
+        try:
+            tcPr = cell._tc.get_or_add_tcPr()
+            for border_name in ["lnL", "lnR", "lnT", "lnB"]:
+                xml_str = f'<a:{border_name} xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" w="{width_str}"><a:solidFill><a:srgbClr val="{color_hex}"/></a:solidFill></a:{border_name}>'
+                tcPr.append(parse_xml(xml_str))
+        except Exception:
+            pass
 
     def map_font_name(pdf_font_name: str) -> str:
         if not pdf_font_name:
@@ -738,6 +749,55 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             else:
                 page_dict = page.get_text("dict")
                 
+            # 0. Table Extraction & Native PowerPoint Table Rendering
+            table_bboxes = []
+            try:
+                tabs = page.find_tables()
+                if tabs and tabs.tables:
+                    for tab in tabs.tables:
+                        tx0, ty0, tx1, ty1 = tab.bbox
+                        table_bboxes.append((tx0, ty0, tx1, ty1))
+                        
+                        # Add native PPT Table shape
+                        t_left = max(0, min(int(Pt(tx0) * scale_x), prs.slide_width - Pt(10)))
+                        t_top = max(0, min(int(Pt(ty0) * scale_y), prs.slide_height - Pt(10)))
+                        t_width = min(int(Pt(tx1 - tx0) * scale_x), prs.slide_width - t_left)
+                        t_height = min(int(Pt(ty1 - ty0) * scale_y), prs.slide_height - t_top)
+                        
+                        if t_width > Pt(20) and t_height > Pt(20) and tab.row_count > 0 and tab.col_count > 0:
+                            t_shape = slide.shapes.add_table(tab.row_count, tab.col_count, t_left, t_top, t_width, t_height)
+                            table_obj = t_shape.table
+                            grid = tab.extract()
+                            
+                            for r_idx in range(tab.row_count):
+                                for c_idx in range(tab.col_count):
+                                    c_cell = table_obj.cell(r_idx, c_idx)
+                                    val_str = ""
+                                    if r_idx < len(grid) and c_idx < len(grid[r_idx]):
+                                        val_str = str(grid[r_idx][c_idx] or "").strip()
+                                        
+                                    c_cell.text = val_str
+                                    c_cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                                    c_cell.margin_left = Pt(2)
+                                    c_cell.margin_right = Pt(2)
+                                    c_cell.margin_top = Pt(1)
+                                    c_cell.margin_bottom = Pt(1)
+                                    
+                                    # Set thin table cell border
+                                    set_pptx_cell_border(c_cell, color_hex="808080", width_str="12700")
+                                    
+                                    # Format paragraph text
+                                    if c_cell.text_frame and c_cell.text_frame.paragraphs:
+                                        p_elem = c_cell.text_frame.paragraphs[0]
+                                        p_elem.alignment = PP_ALIGN.LEFT
+                                        if p_elem.runs:
+                                            for run in p_elem.runs:
+                                                run.font.name = "Arial"
+                                                run.font.size = Pt(9.0)
+                                                run.font.color.rgb = RGBColor(0, 0, 0)
+            except Exception as ex:
+                print("Native table extraction warning:", ex)
+                
             # 1. Background Vector Drawings (tables, structural borders, sidebars, shapes)
             try:
                 drawings = page.get_drawings()
@@ -782,7 +842,6 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                                 else:
                                     shape.fill.background()
                             else:
-                                # For line borders and transparent paths, keep fill transparent (do NOT fill white)
                                 shape.fill.background()
                                 
                             # Set outline borders / column/row lines
@@ -811,6 +870,15 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                         if lx0 >= lx1 or ly0 >= ly1:
                             continue
                         if not (-5000 <= lx0 <= 5000 and -5000 <= ly0 <= 5000 and -5000 <= lx1 <= 5000 and -5000 <= ly1 <= 5000):
+                            continue
+                            
+                        # If text line falls inside an extracted native table, skip creating duplicate overlay textbox
+                        in_table = False
+                        for tx0, ty0, tx1, ty1 in table_bboxes:
+                            if tx0 - 3 <= lx0 <= tx1 + 3 and ty0 - 3 <= ly0 <= ty1 + 3:
+                                in_table = True
+                                break
+                        if in_table:
                             continue
                             
                         # Strictly clamp coordinates to slide boundaries to prevent text overflow off-page
