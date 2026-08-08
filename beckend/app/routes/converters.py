@@ -412,6 +412,150 @@ async def pdf_to_word(file: UploadFile = File(...)):
         print("PDF to Word Error:", e)
         raise HTTPException(status_code=500, detail=f"Failed to convert PDF to Word: {e}")
 
+def page_needs_ocr(page) -> bool:
+    text = page.get_text("text").strip()
+    if not text:
+        return True
+    
+    # Check if a lot of replacement chars or dots are present
+    special_chars = text.count("·") + text.count(chr(0xfffd)) + text.count("•")
+    alnum_chars = sum(1 for c in text if c.isalnum())
+    
+    if alnum_chars < 5:
+        return True
+        
+    if special_chars > 0.4 * (len(text) + 1):
+        return True
+        
+    # Check for legacy fonts (e.g. KrutiDev, Devlys, Shusha)
+    try:
+        page_dict = page.get_text("dict")
+        for block in page_dict.get("blocks", []):
+            if block.get("type") == 0:
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        font_lower = span.get("font", "").lower()
+                        if any(x in font_lower for x in ["kruti", "devlys", "shusha", "chanakya", "shivaji"]):
+                            return True
+    except Exception:
+        pass
+        
+    return False
+
+def get_page_elements(page):
+    if page_needs_ocr(page):
+        try:
+            pix = page.get_pixmap(dpi=150)
+            img_data = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_data))
+            
+            # Preprocessing to improve OCR accuracy on small texts
+            if min(img.size) < 800:
+                img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
+                
+            ocr_data = pytesseract.image_to_data(img, lang="hin+eng", output_type=pytesseract.Output.DICT)
+            
+            blocks_map = {}
+            n_boxes = len(ocr_data['level'])
+            
+            to_points_x = page.rect.width / pix.width
+            to_points_y = page.rect.height / pix.height
+            
+            for i in range(n_boxes):
+                text = ocr_data['text'][i].strip()
+                conf = float(ocr_data['conf'][i]) if ocr_data['conf'][i] != -1 else 0.0
+                if not text or conf < 30:
+                    continue
+                    
+                block_num = ocr_data['block_num'][i]
+                line_num = ocr_data['line_num'][i]
+                
+                l_pix = ocr_data['left'][i]
+                t_pix = ocr_data['top'][i]
+                w_pix = ocr_data['width'][i]
+                h_pix = ocr_data['height'][i]
+                
+                tx0 = l_pix * to_points_x
+                ty0 = t_pix * to_points_y
+                tx1 = (l_pix + w_pix) * to_points_x
+                ty1 = (t_pix + h_pix) * to_points_y
+                
+                key = (block_num, line_num)
+                if key not in blocks_map:
+                    blocks_map[key] = {
+                        "words": [],
+                        "bbox": [tx0, ty0, tx1, ty1]
+                    }
+                else:
+                    bbox = blocks_map[key]["bbox"]
+                    bbox[0] = min(bbox[0], tx0)
+                    bbox[1] = min(bbox[1], ty0)
+                    bbox[2] = max(bbox[2], tx1)
+                    bbox[3] = max(bbox[3], ty1)
+                    
+                blocks_map[key]["words"].append({
+                    "text": text,
+                    "bbox": (tx0, ty0, tx1, ty1)
+                })
+                
+            synthetic_blocks = []
+            block_groups = {}
+            for (block_num, line_num), line_data in blocks_map.items():
+                if block_num not in block_groups:
+                    block_groups[block_num] = []
+                    block_groups[block_num].append(line_data)
+                else:
+                    block_groups[block_num].append(line_data)
+                
+            for block_num, lines in block_groups.items():
+                synthetic_lines = []
+                bx0 = min(l["bbox"][0] for l in lines)
+                by0 = min(l["bbox"][1] for l in lines)
+                bx1 = max(l["bbox"][2] for l in lines)
+                by1 = max(l["bbox"][3] for l in lines)
+                
+                for line_data in lines:
+                    lx0, ly0, lx1, ly1 = line_data["bbox"]
+                    line_text = " ".join(w["text"] for w in line_data["words"])
+                    
+                    synthetic_lines.append({
+                        "bbox": (lx0, ly0, lx1, ly1),
+                        "spans": [{
+                            "text": line_text,
+                            "font": "Arial",
+                            "size": (ly1 - ly0) * 0.8,
+                            "color": 0,
+                            "flags": 0,
+                            "bbox": (lx0, ly0, lx1, ly1)
+                        }]
+                    })
+                    
+                synthetic_blocks.append({
+                    "type": 0,
+                    "bbox": (bx0, by0, bx1, by1),
+                    "lines": synthetic_lines
+                })
+                
+            try:
+                page_dict = page.get_text("dict")
+                image_blocks = [b for b in page_dict.get("blocks", []) if b.get("type") == 1]
+                synthetic_blocks.extend(image_blocks)
+            except Exception:
+                pass
+                
+            return {"blocks": synthetic_blocks}
+        except Exception as e:
+            print("OCR Layout parsing failed, falling back to standard extraction:", e)
+            try:
+                return page.get_text("dict")
+            except Exception:
+                return {"blocks": []}
+    else:
+        try:
+            return page.get_text("dict")
+        except Exception:
+            return {"blocks": []}
+
 # ---------------------------------------------------------------------
 # 📊 PDF to POWERPOINT (.pptx)
 # ---------------------------------------------------------------------
@@ -510,7 +654,7 @@ async def pdf_to_ppt(file: UploadFile = File(...)):
                             pass
             
             # 2. Page Text & Image Blocks
-            page_dict = page.get_text("dict")
+            page_dict = get_page_elements(page)
             for block in page_dict.get("blocks", []):
                 bx0, by0, bx1, by1 = block.get("bbox", (0, 0, 0, 0))
                 
@@ -644,7 +788,7 @@ async def pdf_to_excel(file: UploadFile = File(...)):
             page = doc.load_page(page_num)
             
             # Use 'dict' to get full styling info: blocks -> lines -> spans
-            page_dict = page.get_text("dict")
+            page_dict = get_page_elements(page)
             all_elements = []
             
             for block in page_dict.get("blocks", []):
