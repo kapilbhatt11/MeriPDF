@@ -471,9 +471,9 @@ def get_page_elements(page, force_ocr=False):
             img_data = pix.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
             
-            # Preprocessing to improve OCR accuracy on small texts
+            # Preprocessing to improve OCR accuracy without heavy CPU overhead
             resized_flag = False
-            if min(img.size) < 800:
+            if min(img.size) < 400:
                 img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
                 resized_flag = True
                 
@@ -744,8 +744,8 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             except Exception:
                 drawings = []
                 
-            # Cap vector shapes to avoid performance issues in PowerPoint (allow up to 500 shapes for detailed tables)
-            if len(drawings) < 500:
+            # Cap vector shapes to 120 key elements for high performance on Render free tier
+            if len(drawings) < 120:
                 for d in drawings:
                     rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
                     # Sanitize coords
@@ -754,27 +754,35 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                     dw = rx1 - rx0
                     dh = ry1 - ry0
                     
-                    # Ensure borders and lines are captured (dw > 0.1 or dh > 0.1)
-                    if dw > 0.1 or dh > 0.1:
+                    # Ensure borders and lines are captured (dw > 0.5 or dh > 0.5)
+                    if dw > 0.5 or dh > 0.5:
                         if dw < 0.8:
                             dw = 1.0
                         if dh < 0.8:
                             dh = 1.0
                             
-                        left = int(Pt(rx0) * scale_x)
-                        top = int(Pt(ry0) * scale_y)
-                        width = int(Pt(dw) * scale_x)
-                        height = int(Pt(dh) * scale_y)
+                        left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(5)))
+                        top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(5)))
+                        width = min(int(Pt(dw) * scale_x), prs.slide_width - left)
+                        height = min(int(Pt(dh) * scale_y), prs.slide_height - top)
                         
+                        if width <= 0 or height <= 0:
+                            continue
+                            
                         try:
                             shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
                             
-                            # Set solid background fill if present
+                            # Set solid background fill ONLY if explicit non-white color fill is present
                             if d.get("fill"):
                                 fr, fg, fb = d["fill"]
-                                shape.fill.solid()
-                                shape.fill.fore_color.rgb = RGBColor(int(fr*255), int(fg*255), int(fb*255))
+                                # Avoid covering text with white boxes
+                                if not (fr > 0.92 and fg > 0.92 and fb > 0.92):
+                                    shape.fill.solid()
+                                    shape.fill.fore_color.rgb = RGBColor(int(fr*255), int(fg*255), int(fb*255))
+                                else:
+                                    shape.fill.background()
                             else:
+                                # For line borders and transparent paths, keep fill transparent (do NOT fill white)
                                 shape.fill.background()
                                 
                             # Set outline borders / column/row lines
@@ -788,6 +796,9 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                         except Exception:
                             pass
                             
+            slide_w = prs.slide_width
+            slide_h = prs.slide_height
+
             for block in page_dict.get("blocks", []):
                 bx0, by0, bx1, by1 = block.get("bbox", (0, 0, 0, 0))
                 
@@ -802,14 +813,22 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                         if not (-5000 <= lx0 <= 5000 and -5000 <= ly0 <= 5000 and -5000 <= lx1 <= 5000 and -5000 <= ly1 <= 5000):
                             continue
                             
-                        left = int(Pt(lx0) * scale_x)
-                        top = int(Pt(ly0) * scale_y)
-                        width = int(Pt(lx1 - lx0 + 4) * scale_x)
-                        height = int(Pt(ly1 - ly0) * scale_y)
+                        # Strictly clamp coordinates to slide boundaries to prevent text overflow off-page
+                        clamped_x0 = max(0.0, min(lx0, pdf_width - 10.0))
+                        clamped_y0 = max(0.0, min(ly0, pdf_height - 10.0))
                         
-                        # Protect against zero width/height
-                        if width <= 0: width = Pt(50)
-                        if height <= 0: height = Pt(15)
+                        left = max(0, min(int(Pt(clamped_x0) * scale_x), slide_w - Pt(15)))
+                        top = max(0, min(int(Pt(clamped_y0) * scale_y), slide_h - Pt(10)))
+                        
+                        max_w = slide_w - left
+                        width = min(int(Pt(lx1 - lx0 + 4) * scale_x), max_w)
+                        if width <= Pt(5):
+                            width = min(Pt(50), max_w)
+                            
+                        max_h = slide_h - top
+                        height = min(int(Pt(ly1 - ly0) * scale_y), max_h)
+                        if height <= Pt(5):
+                            height = min(Pt(15), max_h)
                         
                         try:
                             txBox = slide.shapes.add_textbox(left, top, width, height)
@@ -835,8 +854,9 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                                 run = p.add_run()
                                 run.text = text
                                 
-                                # Font size scaling
+                                # Font size scaling with clamping to prevent text overflow
                                 font_size = span.get("size", 11)
+                                font_size = max(8.0, min(font_size, 13.0))
                                 run.font.size = int(Pt(font_size) * scale_y)
                                 
                                 # Font family mapping
@@ -1047,8 +1067,8 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                         except Exception:
                             pass
                             
-                    # Apply cell border for structural tables
-                    if drawings:
+                    # Apply cell border for structural tables only on actual data cells
+                    if drawings and item.get("text", "").strip():
                         cell.border = thin_border
                         
                     # Apply Font Styles
