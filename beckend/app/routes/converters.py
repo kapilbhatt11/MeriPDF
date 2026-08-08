@@ -584,11 +584,44 @@ def get_page_elements(page, force_ocr=False):
         except Exception:
             return {"blocks": []}
 
+def parse_page_range(range_str: str, max_pages: int):
+    if not range_str:
+        return list(range(max_pages))
+    
+    pages = set()
+    parts = range_str.split(",")
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                start, end = part.split("-")
+                start_idx = int(start.strip()) - 1
+                end_idx = int(end.strip()) - 1
+                start_idx = max(0, min(start_idx, max_pages - 1))
+                end_idx = max(0, min(end_idx, max_pages - 1))
+                if start_idx <= end_idx:
+                    pages.update(range(start_idx, end_idx + 1))
+                else:
+                    pages.update(range(end_idx, start_idx + 1))
+            except ValueError:
+                pass
+        else:
+            try:
+                p = int(part) - 1
+                if 0 <= p < max_pages:
+                    pages.add(p)
+            except ValueError:
+                pass
+                
+    return sorted(list(pages)) if pages else list(range(max_pages))
+
 # ---------------------------------------------------------------------
 # 📊 PDF to POWERPOINT (.pptx)
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-ppt")
-async def pdf_to_ppt(file: UploadFile = File(...)):
+async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None)):
     from pptx.enum.shapes import MSO_SHAPE
 
     def map_font_name(pdf_font_name: str) -> str:
@@ -631,7 +664,8 @@ async def pdf_to_ppt(file: UploadFile = File(...)):
         # Safeguard processing count for OCR to avoid Render timeout / OOM
         MAX_OCR_PAGES = 15
         ocr_processed = 0
-        for page_num in range(len(doc)):
+        pages_to_process = parse_page_range(page_range, len(doc))
+        for page_num in pages_to_process:
             page = doc.load_page(page_num)
             slide = prs.slides.add_slide(blank_slide_layout)
             
@@ -812,7 +846,7 @@ async def pdf_to_ppt(file: UploadFile = File(...)):
 # 📈 PDF to EXCEL (.xlsx)
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-excel")
-async def pdf_to_excel(file: UploadFile = File(...)):
+async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None)):
     try:
         temp_dir = tempfile.gettempdir()
         pdf_path = os.path.join(temp_dir, f"tmp_excel_{file.filename}")
@@ -829,7 +863,8 @@ async def pdf_to_excel(file: UploadFile = File(...)):
         # Safeguard processing count for OCR to avoid Render timeout / OOM
         MAX_OCR_PAGES = 15
         ocr_processed = 0
-        for page_num in range(len(doc)):
+        pages_to_process = parse_page_range(page_range, len(doc))
+        for page_num in pages_to_process:
             page = doc.load_page(page_num)
             
             # Use 'dict' to get full styling info: blocks -> lines -> spans
