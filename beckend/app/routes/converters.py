@@ -544,18 +544,47 @@ def get_page_elements(page, force_ocr=False):
                 
                 for line_data in lines:
                     lx0, ly0, lx1, ly1 = line_data["bbox"]
-                    line_text = " ".join(w["text"] for w in line_data["words"])
                     
-                    synthetic_lines.append({
-                        "bbox": (lx0, ly0, lx1, ly1),
-                        "spans": [{
-                            "text": line_text,
+                    # Sort words horizontally
+                    words = sorted(line_data["words"], key=lambda w: w["bbox"][0])
+                    spans = []
+                    if words:
+                        curr_span = {
+                            "text": words[0]["text"],
+                            "bbox": list(words[0]["bbox"])
+                        }
+                        for w in words[1:]:
+                            wx0, wy0, wx1, wy1 = w["bbox"]
+                            # If they are close horizontally, merge them
+                            if wx0 - curr_span["bbox"][2] <= 18:
+                                curr_span["text"] += " " + w["text"]
+                                curr_span["bbox"][2] = max(curr_span["bbox"][2], wx1)
+                                curr_span["bbox"][1] = min(curr_span["bbox"][1], wy0)
+                                curr_span["bbox"][3] = max(curr_span["bbox"][3], wy1)
+                            else:
+                                spans.append(curr_span)
+                                curr_span = {
+                                    "text": w["text"],
+                                    "bbox": list(w["bbox"])
+                                }
+                        spans.append(curr_span)
+                    
+                    # Convert to PyMuPDF dictionary spans format
+                    synthetic_spans = []
+                    for s in spans:
+                        sx0, sy0, sx1, sy1 = s["bbox"]
+                        synthetic_spans.append({
+                            "text": s["text"],
                             "font": "Arial",
-                            "size": (ly1 - ly0) * 0.8,
+                            "size": (sy1 - sy0) * 0.8,
                             "color": 0,
                             "flags": 0,
-                            "bbox": (lx0, ly0, lx1, ly1)
-                        }]
+                            "bbox": (sx0, sy0, sx1, sy1)
+                        })
+                        
+                    synthetic_lines.append({
+                        "bbox": (lx0, ly0, lx1, ly1),
+                        "spans": synthetic_spans
                     })
                     
                 synthetic_blocks.append({
@@ -676,49 +705,7 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             scale_x = prs.slide_width / Pt(pdf_width) if pdf_width else 1.0
             scale_y = prs.slide_height / Pt(pdf_height) if pdf_height else 1.0
             
-            # 1. Background Vector Drawings (tables, structural borders, sidebars, shapes)
-            try:
-                drawings = page.get_drawings()
-            except Exception:
-                drawings = []
-                
-            # Cap vector shapes to avoid performance issues in PowerPoint
-            if len(drawings) < 150:
-                for d in drawings:
-                    rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
-                    # Sanitize coords
-                    if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
-                        continue
-                    dw = rx1 - rx0
-                    dh = ry1 - ry0
-                    if dw > 0.5 and dh > 0.5:
-                        left = int(Pt(rx0) * scale_x)
-                        top = int(Pt(ry0) * scale_y)
-                        width = int(Pt(dw) * scale_x)
-                        height = int(Pt(dh) * scale_y)
-                        
-                        try:
-                            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
-                            
-                            # Set solid background fill if present
-                            if d.get("fill"):
-                                fr, fg, fb = d["fill"]
-                                shape.fill.solid()
-                                shape.fill.fore_color.rgb = RGBColor(int(fr*255), int(fg*255), int(fb*255))
-                            else:
-                                shape.fill.background()
-                                
-                            # Set outline borders / column/row lines
-                            if d.get("color") and d.get("width", 0) > 0:
-                                sr, sg, sb = d["color"]
-                                shape.line.color.rgb = RGBColor(int(sr*255), int(sg*255), int(sb*255))
-                                shape.line.width = int(Pt(d["width"]) * scale_y)
-                            else:
-                                shape.line.fill.background()
-                        except Exception:
-                            pass
-            
-            # 2. Page Text & Image Blocks
+            # Page Text & Image Blocks
             needs_ocr = page_needs_ocr(page)
             if needs_ocr:
                 if ocr_processed >= MAX_OCR_PAGES:
@@ -736,37 +723,40 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                 
                 # Text Block
                 if block.get("type") == 0:
-                    for line in block.get("lines", []):
-                        lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
+                    # Sanitize coordinates
+                    if bx0 >= bx1 or by0 >= by1:
+                        continue
+                    if not (-5000 <= bx0 <= 5000 and -5000 <= by0 <= 5000 and -5000 <= bx1 <= 5000 and -5000 <= by1 <= 5000):
+                        continue
                         
-                        # Sanitize coordinates
-                        if lx0 >= lx1 or ly0 >= ly1:
-                            continue
-                        if not (-5000 <= lx0 <= 5000 and -5000 <= ly0 <= 5000 and -5000 <= lx1 <= 5000 and -5000 <= ly1 <= 5000):
-                            continue
-                            
-                        left = int(Pt(lx0) * scale_x)
-                        top = int(Pt(ly0) * scale_y)
-                        width = int(Pt(lx1 - lx0) * scale_x)
-                        height = int(Pt(ly1 - ly0) * scale_y)
+                    left = int(Pt(bx0) * scale_x)
+                    top = int(Pt(by0) * scale_y)
+                    width = int(Pt(bx1 - bx0) * scale_x)
+                    height = int(Pt(by1 - by0) * scale_y)
+                    
+                    # Protect against zero width/height
+                    if width <= 0: width = Pt(100)
+                    if height <= 0: height = Pt(20)
+                    
+                    try:
+                        txBox = slide.shapes.add_textbox(left, top, width, height)
+                        tf = txBox.text_frame
+                        tf.word_wrap = True
+                        tf.clear()
                         
-                        # Protect against zero width/height
-                        if width <= 0: width = Pt(50)
-                        if height <= 0: height = Pt(15)
+                        tf.margin_left = Pt(0)
+                        tf.margin_right = Pt(0)
+                        tf.margin_top = Pt(0)
+                        tf.margin_bottom = Pt(0)
                         
-                        try:
-                            txBox = slide.shapes.add_textbox(left, top, width, height)
-                            tf = txBox.text_frame
-                            tf.word_wrap = False  # Disable wrapping to avoid stacking text flows on PDF page
-                            tf.clear()
-                            
-                            # Remove default internal padding/margins for exact replica positioning
-                            tf.margin_left = Pt(0)
-                            tf.margin_right = Pt(0)
-                            tf.margin_top = Pt(0)
-                            tf.margin_bottom = Pt(0)
-                            
-                            p = tf.paragraphs[0]
+                        is_first_line = True
+                        for line in block.get("lines", []):
+                            if is_first_line:
+                                p = tf.paragraphs[0]
+                                is_first_line = False
+                            else:
+                                p = tf.add_paragraph()
+                                
                             p.space_after = Pt(0)
                             p.space_before = Pt(0)
                             
@@ -800,8 +790,8 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                                     run.font.bold = True
                                 if flags & 2:
                                     run.font.italic = True
-                        except Exception as e:
-                            print("Warning rendering line in PPTX:", e)
+                    except Exception as e:
+                        print("Warning rendering block in PPTX:", e)
                             
                 # Image Block
                 elif block.get("type") == 1:
