@@ -20,7 +20,7 @@ from pptx.dml.color import RGBColor
 import pdfplumber
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from fastapi.responses import FileResponse, StreamingResponse
 import pytesseract
@@ -477,13 +477,8 @@ def get_page_elements(page, force_ocr=False):
                 img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
                 resized_flag = True
                 
-            # Optimize language based on characters present
-            try:
-                raw_text = page.get_text("text")
-                has_hindi = any(0x0900 <= ord(c) <= 0x097F for c in raw_text)
-                lang = "hin" if has_hindi else "eng"
-            except Exception:
-                lang = "hin+eng"
+            # Use combined hin+eng OCR engine to recognize both Hindi Devanagari and English numbers/text
+            lang = "hin+eng"
                 
             ocr_data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
             
@@ -749,8 +744,8 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             except Exception:
                 drawings = []
                 
-            # Cap vector shapes to avoid performance issues in PowerPoint
-            if len(drawings) < 150:
+            # Cap vector shapes to avoid performance issues in PowerPoint (allow up to 500 shapes for detailed tables)
+            if len(drawings) < 500:
                 for d in drawings:
                     rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
                     # Sanitize coords
@@ -759,11 +754,11 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                     dw = rx1 - rx0
                     dh = ry1 - ry0
                     
-                    # Ensure minimum thickness for line borders
-                    if dw > 0.5 or dh > 0.5:
-                        if dw < 0.5:
+                    # Ensure borders and lines are captured (dw > 0.1 or dh > 0.1)
+                    if dw > 0.1 or dh > 0.1:
+                        if dw < 0.8:
                             dw = 1.0
-                        if dh < 0.5:
+                        if dh < 0.8:
                             dh = 1.0
                             
                         left = int(Pt(rx0) * scale_x)
@@ -783,10 +778,11 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
                                 shape.fill.background()
                                 
                             # Set outline borders / column/row lines
-                            if d.get("color") and d.get("width", 0) > 0:
-                                sr, sg, sb = d["color"]
+                            stroke_width = d.get("width", 0)
+                            if d.get("color") and (stroke_width > 0 or dw <= 1.5 or dh <= 1.5):
+                                sr, sg, sb = d.get("color", (0, 0, 0))
                                 shape.line.color.rgb = RGBColor(int(sr*255), int(sg*255), int(sb*255))
-                                shape.line.width = int(Pt(d["width"]) * scale_y)
+                                shape.line.width = max(Pt(0.75), int(Pt(stroke_width) * scale_y))
                             else:
                                 shape.line.fill.background()
                         except Exception:
@@ -969,9 +965,19 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
             if not all_elements:
                 continue
                 
+            # Extract drawings for cell borders and background fills
+            try:
+                drawings = page.get_drawings()
+            except Exception:
+                drawings = []
+                
             ws_created = True
             ws = wb.create_sheet(title=f"Page_{page_num+1}"[:31])
-            
+            try:
+                ws.views.sheetView[0].showGridLines = True
+            except Exception:
+                pass
+                
             # Sort vertically
             all_elements.sort(key=lambda item: item["y0"])
             
@@ -983,7 +989,6 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
             for el in all_elements:
                 if abs(el["y0"] - current_y) <= y_tolerance:
                     current_row.append(el)
-                    # Average out the Y for stability
                     current_y = (current_y + el["y0"]) / 2
                 else:
                     rows.append(current_row)
@@ -993,6 +998,14 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                 rows.append(current_row)
                 
             col_width_factor = 40 # 1 excel column ~ 40 points wide layout
+            
+            # Prepare standard cell border
+            thin_border = Border(
+                left=Side(style='thin', color='B0B0B0'),
+                right=Side(style='thin', color='B0B0B0'),
+                top=Side(style='thin', color='B0B0B0'),
+                bottom=Side(style='thin', color='B0B0B0')
+            )
             
             for r_idx, row_elements in enumerate(rows):
                 row_elements.sort(key=lambda w: w["x0"])
@@ -1019,28 +1032,49 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                         
                     cell = ws.cell(row=r_idx+1, column=col_idx, value=item["text"])
                     
+                    # Check vector drawing background fill at item position
+                    bg_fill_hex = None
+                    for d in drawings:
+                        rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                        if rx0 <= item["x0"] <= rx1 and ry0 <= item["y0"] <= ry1 and d.get("fill"):
+                            fr, fg, fb = d["fill"]
+                            bg_fill_hex = f"FF{int(fr*255):02x}{int(fg*255):02x}{int(fb*255):02x}"
+                            break
+                            
+                    if bg_fill_hex and bg_fill_hex.upper() != "FFFFFF":
+                        try:
+                            cell.fill = PatternFill(start_color=bg_fill_hex, end_color=bg_fill_hex, fill_type="solid")
+                        except Exception:
+                            pass
+                            
+                    # Apply cell border for structural tables
+                    if drawings:
+                        cell.border = thin_border
+                        
                     # Apply Font Styles
                     is_bold = bool(item["flags"] & 16)
                     is_italic = bool(item["flags"] & 2)
                     
                     try:
                         cell.font = Font(
+                            name="Calibri",
                             color=item["color"], 
                             size=int(item["size"]), 
                             bold=is_bold, 
                             italic=is_italic
                         )
+                        cell.alignment = Alignment(vertical="center", wrap_text=False)
                     except Exception:
-                        pass # standard fallback
+                        pass
                         
                     max_font_size = max(max_font_size, int(item["size"]))
                     
-                    # Approx visual width sizing based on characters
+                    # Sizing column width dynamically based on text length
                     col_letter = get_column_letter(col_idx)
                     current_col_width = ws.column_dimensions[col_letter].width or 8
-                    needed_width = len(item["text"]) * (item["size"] / 12) * 1.0
+                    needed_width = len(item["text"]) * 1.1 + 3
                     if needed_width > current_col_width:
-                        ws.column_dimensions[col_letter].width = min(needed_width, 50)
+                        ws.column_dimensions[col_letter].width = min(needed_width, 60)
                 
                 # Apply row height
                 ws.row_dimensions[r_idx+1].height = max_font_size + 8
