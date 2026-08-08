@@ -749,7 +749,41 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
             else:
                 page_dict = page.get_text("dict")
                 
-            # 0. Table Extraction & Native PowerPoint Table Rendering
+            # 0. Background Images & Watermarks (Layer 0)
+            try:
+                image_list = page.get_images()
+                for img_idx, img_info in enumerate(image_list[:10]):
+                    xref = img_info[0]
+                    base_img = doc.extract_image(xref)
+                    if base_img:
+                        img_bytes = base_img["image"]
+                        img_ext = base_img["ext"]
+                        tmp_bg_path = os.path.join(temp_dir, f"tmp_bg_{page_num}_{img_idx}.{img_ext}")
+                        with open(tmp_bg_path, "wb") as f_img:
+                            f_img.write(img_bytes)
+                            
+                        img_rects = page.get_image_rects(xref)
+                        if img_rects:
+                            rx0, ry0, rx1, ry1 = img_rects[0]
+                            i_left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(10)))
+                            i_top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(10)))
+                            i_width = min(int(Pt(rx1 - rx0) * scale_x), prs.slide_width - i_left)
+                            i_height = min(int(Pt(ry1 - ry0) * scale_y), prs.slide_height - i_top)
+                        else:
+                            i_left, i_top = 0, 0
+                            i_width, i_height = prs.slide_width, prs.slide_height
+                            
+                        if i_width > 10 and i_height > 10:
+                            try:
+                                slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
+                            except Exception:
+                                pass
+                        if os.path.exists(tmp_bg_path):
+                            os.remove(tmp_bg_path)
+            except Exception as ex_img:
+                print("Background image extraction warning:", ex_img)
+
+            # 1. Table Extraction & Native PowerPoint Table Rendering (Layer 1)
             table_bboxes = []
             try:
                 tabs = page.find_tables()
