@@ -427,6 +427,24 @@ def page_needs_ocr(page) -> bool:
     if special_chars > 0.4 * (len(text) + 1):
         return True
         
+    # Check for corrupt Unicode characters (outside standard ASCII/Devanagari/common signs)
+    # This detects Indic documents with corrupt translation tables/obscure unicode points
+    corrupt_count = 0
+    for char in text:
+        o = ord(char)
+        if o <= 127:
+            continue
+        if 0x0900 <= o <= 0x097F:
+            continue
+        if 0x2000 <= o <= 0x206F:
+            continue
+        if 0x20A0 <= o <= 0x20CF:
+            continue
+        corrupt_count += 1
+        
+    if corrupt_count > 5:
+        return True
+        
     # Check for legacy fonts (e.g. KrutiDev, Devlys, Shusha)
     try:
         page_dict = page.get_text("dict")
