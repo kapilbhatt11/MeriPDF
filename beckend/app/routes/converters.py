@@ -911,259 +911,227 @@ async def pdf_to_ppt(
             # Rule 1: Page-Type Detection for 400 DPI Minimum on Table/Form pages
             page_target_dpi = detect_page_dpi(page, requested_dpi=dpi_val)
 
-            # ---------------------------------------------------------
-            # ---------------------------------------------------------
-            # MODE A: ILOVEPDF DUAL-LAYER PARITY (DEFAULT & RECOMMENDED)
-            # 1. Base Layer: High-Res 400 DPI PDF Page Replica (100% exact table cells, borders, colors, lines)
-            # 2. Additive Vector Grid Overlay: Crisp vector hairline border shapes
-            # 3. Precision Text Layer: Transparent, selectable, copyable, & editable PowerPoint textboxes
-            # ---------------------------------------------------------
-            if mode_str in ["replica", "hybrid", "ilovepdf"]:
-                try:
-                    # 1. Place High-Res Page Image as Base Background Replica (400 DPI min for table/form)
-                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=page_target_dpi)
-                    slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
-                    if os.path.exists(img_path):
-                        os.remove(img_path)
+        # Single Unified Engine: 100% Vector, Color-Preserved & Editable PPT (NO Full-Page Background Image)
+        for page_num in pages_to_process:
+            page = doc.load_page(page_num)
+            slide = prs.slides.add_slide(blank_slide_layout)
+            
+            p_width = Pt(page.rect.width)
+            p_height = Pt(page.rect.height)
+            s_width = int(p_width) if p_width else prs.slide_width
+            s_height = int(p_height) if p_height else prs.slide_height
 
-                    # 2. Additive Crisp Vector Gridlines Overlay
-                    overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height)
+            scale_x = s_width / p_width if p_width else 1.0
+            scale_y = s_height / p_height if p_height else 1.0
+            page_area = (page.rect.width * page.rect.height) or 1.0
 
-                    # 3. Layer Precision Transparent Editable Text Boxes matching PDF coordinates & typography
-                    page_dict = page.get_text("dict")
-                    for block in page_dict.get("blocks", []):
-                        if block.get("type") == 0:  # Text block
-                            for line in block.get("lines", []):
-                                lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
-                                if lx0 >= lx1 or ly0 >= ly1:
-                                    continue
-                                
-                                left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(5)))
-                                top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(5)))
-                                width = min(int(Pt(max(lx1 - lx0 + 4, 10)) * scale_x), s_width - left)
-                                height = min(int(Pt(max(ly1 - ly0 + 2, 8)) * scale_y), s_height - top)
-                                if width <= Pt(4) or height <= Pt(4):
-                                    continue
-
-                                txBox = slide.shapes.add_textbox(left, top, width, height)
-                                tf = txBox.text_frame
-                                tf.word_wrap = False
-                                tf.clear()
-                                tf.margin_left = Pt(0)
-                                tf.margin_right = Pt(0)
-                                tf.margin_top = Pt(0)
-                                tf.margin_bottom = Pt(0)
-                                p_elem = tf.paragraphs[0]
-
-                                spans = line.get("spans", [])
-                                for span in spans:
-                                    t_text = span.get("text", "")
-                                    if not t_text:
-                                        continue
-                                    run = p_elem.add_run()
-                                    run.text = t_text
-                                    
-                                    # Exact PDF Font Size (no artificially forced caps!)
-                                    f_size = max(5.0, min(span.get("size", 10.0), 72.0))
-                                    run.font.size = Pt(f_size * scale_y)
-                                    run.font.name = map_font_name(span.get("font", "Arial"))
-                                    run.font.color.rgb = safe_rgb_color(span.get("color", 0))
-                                    
-                                    flags = span.get("flags", 0)
-                                    if flags & 16: run.font.bold = True
-                                    if flags & 2: run.font.italic = True
-                except Exception as ex_par:
-                    print(f"ILovePDF Parity engine exception on page {page_num}:", ex_par)
-                    try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=200)
-                        slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
-                        if os.path.exists(img_path): os.remove(img_path)
-                    except Exception:
-                        pass
-
-            # ---------------------------------------------------------
-            # MODE C: EDITABLE OBJECTS & ITR/FINANCIAL TABLE RECONSTRUCTION
-            # ---------------------------------------------------------
-            else:  # mode == "editable"
-                try:
-                    # 1. Embedded Images (Extract small images/logos, skip full-page background canvas images)
-                    try:
-                        image_list = page.get_images()
-                        page_area = (page.rect.width * page.rect.height) or 1.0
-                        for img_idx, img_info in enumerate(image_list[:10]):
-                            xref = img_info[0]
-                            base_img = doc.extract_image(xref)
-                            if base_img:
-                                img_bytes = base_img["image"]
-                                img_ext = base_img["ext"]
-                                tmp_bg_path = os.path.join(temp_dir, f"tmp_bg_{page_num}_{img_idx}_{uuid.uuid4().hex[:6]}.{img_ext}")
-                                with open(tmp_bg_path, "wb") as f_img:
-                                    f_img.write(img_bytes)
-                                img_rects = page.get_image_rects(xref)
-                                if img_rects:
-                                    rx0, ry0, rx1, ry1 = img_rects[0]
-                                    img_area = (rx1 - rx0) * (ry1 - ry0)
-                                    # Skip full-page background canvas images (>75% area) in editable mode
-                                    if (img_area / page_area) > 0.75:
-                                        if os.path.exists(tmp_bg_path):
-                                            os.remove(tmp_bg_path)
-                                        continue
-
-                                    i_left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(10)))
-                                    i_top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(10)))
-                                    i_width = min(int(Pt(rx1 - rx0) * scale_x), s_width - i_left)
-                                    i_height = min(int(Pt(ry1 - ry0) * scale_y), s_height - i_top)
-                                    if i_width > Pt(10) and i_height > Pt(10):
-                                        slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
+            # 1. Embedded Image Assets (Logos, Photos, Stamps ONLY - Skip Full-Page Canvas)
+            try:
+                image_list = page.get_images()
+                for img_idx, img_info in enumerate(image_list[:10]):
+                    xref = img_info[0]
+                    base_img = doc.extract_image(xref)
+                    if base_img:
+                        img_bytes = base_img["image"]
+                        img_ext = base_img["ext"]
+                        tmp_bg_path = os.path.join(temp_dir, f"tmp_img_{page_num}_{img_idx}_{uuid.uuid4().hex[:6]}.{img_ext}")
+                        with open(tmp_bg_path, "wb") as f_img:
+                            f_img.write(img_bytes)
+                        img_rects = page.get_image_rects(xref)
+                        if img_rects:
+                            rx0, ry0, rx1, ry1 = img_rects[0]
+                            img_area = (rx1 - rx0) * (ry1 - ry0)
+                            # Skip full-page background images (>75% area) to ensure 100% editable vector/text presentation
+                            if (img_area / page_area) > 0.75:
                                 if os.path.exists(tmp_bg_path):
                                     os.remove(tmp_bg_path)
-                    except Exception as ex_img:
-                        print("Editable background extraction warning:", ex_img)
-
-                    # 2. Financial / ITR Table Reconstruction with Column & Merged Cell Detection
-                    table_bboxes = []
-                    try:
-                        tabs = page.find_tables()
-                        if tabs and tabs.tables:
-                            for tab in tabs.tables:
-                                tx0, ty0, tx1, ty1 = tab.bbox
-                                table_bboxes.append((tx0, ty0, tx1, ty1))
-                                t_left = max(0, min(int(Pt(tx0) * scale_x), s_width - Pt(10)))
-                                t_top = max(0, min(int(Pt(ty0) * scale_y), s_height - Pt(10)))
-                                t_width = min(int(Pt(tx1 - tx0) * scale_x), s_width - t_left)
-                                t_height = min(int(Pt(ty1 - ty0) * scale_y), s_height - t_top)
-
-                                if t_width > Pt(20) and t_height > Pt(20) and tab.row_count > 0 and tab.col_count > 0:
-                                    t_shape = slide.shapes.add_table(tab.row_count, tab.col_count, t_left, t_top, t_width, t_height)
-                                    table_obj = t_shape.table
-                                    grid = tab.extract()
-
-                                    # Adjust individual column widths if tab.cols coordinates are available
-                                    try:
-                                        if hasattr(tab, "cols") and tab.cols:
-                                            col_widths = []
-                                            for c_idx in range(len(tab.cols) - 1):
-                                                c_w = (tab.cols[c_idx + 1] - tab.cols[c_idx]) * scale_x
-                                                col_widths.append(int(Pt(c_w)))
-                                            for c_idx, cw in enumerate(col_widths[:tab.col_count]):
-                                                table_obj.columns[c_idx].width = max(Pt(15), cw)
-                                    except Exception:
-                                        pass
-
-                                    for r_idx in range(tab.row_count):
-                                        for c_idx in range(tab.col_count):
-                                            c_cell = table_obj.cell(r_idx, c_idx)
-                                            val_str = ""
-                                            if r_idx < len(grid) and c_idx < len(grid[r_idx]):
-                                                val_str = str(grid[r_idx][c_idx] or "").strip()
-
-                                            c_cell.text = val_str
-                                            c_cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                                            c_cell.margin_left = Pt(2)
-                                            c_cell.margin_right = Pt(2)
-                                            c_cell.margin_top = Pt(1)
-                                            c_cell.margin_bottom = Pt(1)
-                                            set_pptx_cell_border(c_cell, color_hex="808080", width_str="12700")
-
-                                            if c_cell.text_frame and c_cell.text_frame.paragraphs:
-                                                p_elem = c_cell.text_frame.paragraphs[0]
-                                                p_elem.alignment = PP_ALIGN.LEFT
-                                                if p_elem.runs:
-                                                    for run in p_elem.runs:
-                                                        run.font.name = "Arial"
-                                                        run.font.size = Pt(9.0)
-                                                        run.font.color.rgb = RGBColor(0, 0, 0)
-                    except Exception as ex_tab:
-                        print("Editable table extraction warning:", ex_tab)
-
-                    # 3. Vector Shape / Line Borders
-                    try:
-                        drawings = page.get_drawings()
-                    except Exception:
-                        drawings = []
-
-                    if len(drawings) < 350:
-                        for d in drawings:
-                            rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
-                            if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
                                 continue
-                            dw, dh = rx1 - rx0, ry1 - ry0
-                            if dw > 0.5 or dh > 0.5:
-                                left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(5)))
-                                top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(5)))
-                                width = min(int(Pt(dw) * scale_x), s_width - left)
-                                height = min(int(Pt(dh) * scale_y), s_height - top)
-                                if width <= 0 or height <= 0: continue
 
-                                try:
-                                    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
-                                    if d.get("fill"):
-                                        fr, fg, fb = d["fill"]
-                                        if not (fr > 0.92 and fg > 0.92 and fb > 0.92):
-                                            shape.fill.solid()
-                                            shape.fill.fore_color.rgb = safe_rgb_color(d["fill"])
-                                        else: shape.fill.background()
-                                    else: shape.fill.background()
+                            i_left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(5)))
+                            i_top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(5)))
+                            i_width = min(int(Pt(rx1 - rx0) * scale_x), s_width - i_left)
+                            i_height = min(int(Pt(ry1 - ry0) * scale_y), s_height - i_top)
+                            if i_width > Pt(5) and i_height > Pt(5):
+                                slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
+                        if os.path.exists(tmp_bg_path):
+                            os.remove(tmp_bg_path)
+            except Exception as ex_img:
+                print("Image asset extraction warning:", ex_img)
 
-                                    stroke_width = d.get("width", 0)
-                                    if d.get("color") and (stroke_width > 0 or dw <= 1.5 or dh <= 1.5):
-                                        shape.line.color.rgb = safe_rgb_color(d.get("color", (0, 0, 0)))
-                                        shape.line.width = max(Pt(0.75), int(Pt(stroke_width) * scale_y))
-                                    else: shape.line.fill.background()
-                                except Exception:
-                                    pass
+            # 2. Vector Drawings (Table cell background fills, header fills, grid lines, checkboxes, form boxes)
+            try:
+                drawings = page.get_drawings()
+                for d in drawings[:800]:  # Support rich vector pages
+                    stroke_color = d.get("color")
+                    fill_color = d.get("fill")
+                    line_w = d.get("width", 1.0)
+                    
+                    rect = d.get("rect", (0, 0, 0, 0))
+                    rx0, ry0, rx1, ry1 = rect
+                    
+                    # Skip invalid coordinates
+                    if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
+                        continue
 
-                    # 4. Text Boxes
-                    page_dict = page.get_text("dict")
-                    for block in page_dict.get("blocks", []):
-                        if block.get("type") == 0:
-                            for line in block.get("lines", []):
-                                lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
-                                if lx0 >= lx1 or ly0 >= ly1: continue
+                    dw, dh = rx1 - rx0, ry1 - ry0
+                    if dw <= 0.5 and dh <= 0.5:
+                        continue
 
-                                in_table = False
-                                for tx0, ty0, tx1, ty1 in table_bboxes:
-                                    if tx0 - 3 <= lx0 <= tx1 + 3 and ty0 - 3 <= ly0 <= ty1 + 3:
-                                        in_table = True
-                                        break
-                                if in_table: continue
+                    left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(2)))
+                    top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(2)))
+                    width = min(int(Pt(dw) * scale_x), s_width - left)
+                    height = min(int(Pt(dh) * scale_y), s_height - top)
+                    
+                    if width <= 0 or height <= 0:
+                        continue
 
-                                left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(10)))
-                                top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(10)))
-                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), s_width - left)
-                                height = min(int(Pt(ly1 - ly0) * scale_y), s_height - top)
-                                if width <= Pt(5) or height <= Pt(5): continue
+                    # Check fill color
+                    has_solid_fill = False
+                    rgb_fill = None
+                    if fill_color:
+                        fr, fg, fb = fill_color[0], fill_color[1], fill_color[2] if len(fill_color) >= 3 else (1,1,1)
+                        # Don't draw pure white background canvases covering whole slide
+                        if not (fr > 0.96 and fg > 0.96 and fb > 0.96 and (dw / page.rect.width) > 0.85 and (dh / page.rect.height) > 0.85):
+                            has_solid_fill = True
+                            rgb_fill = safe_rgb_color(fill_color)
 
-                                txBox = slide.shapes.add_textbox(left, top, width, height)
-                                tf = txBox.text_frame
-                                tf.word_wrap = False
-                                tf.clear()
-                                tf.margin_left = Pt(0)
-                                tf.margin_right = Pt(0)
-                                tf.margin_top = Pt(0)
-                                tf.margin_bottom = Pt(0)
-                                p_elem = tf.paragraphs[0]
+                    # Check line color
+                    has_line_stroke = False
+                    rgb_line = None
+                    if stroke_color:
+                        has_line_stroke = True
+                        rgb_line = safe_rgb_color(stroke_color)
+                    elif dw <= 3.0 or dh <= 3.0:
+                        # Implicit border/gridline stroke
+                        has_line_stroke = True
+                        rgb_line = RGBColor(120, 120, 120)
 
-                                for span in line.get("spans", []):
-                                    t_text = span.get("text", "")
-                                    if not t_text: continue
-                                    run = p_elem.add_run()
-                                    run.text = t_text
-                                    f_size = max(8.0, min(span.get("size", 11), 14.0))
-                                    run.font.size = int(Pt(f_size) * scale_y)
-                                    run.font.name = map_font_name(span.get("font", "Arial"))
-                                    run.font.color.rgb = safe_rgb_color(span.get("color", 0))
-                                    flags = span.get("flags", 0)
-                                    if flags & 16: run.font.bold = True
-                                    if flags & 2: run.font.italic = True
-                except Exception as ex_edt:
-                    print(f"Editable mode exception for page {page_num}, falling back to high-res image:", ex_edt)
-                    try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=150)
-                        slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
-                        if os.path.exists(img_path): os.remove(img_path)
-                    except Exception:
-                        pass
+                    if has_solid_fill or has_line_stroke:
+                        try:
+                            v_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                            if has_solid_fill and rgb_fill:
+                                v_shape.fill.solid()
+                                v_shape.fill.fore_color.rgb = rgb_fill
+                            else:
+                                v_shape.fill.background()
+
+                            if has_line_stroke and rgb_line:
+                                v_shape.line.color.rgb = rgb_line
+                                v_shape.line.width = max(Pt(1.0), int(Pt(max(line_w, 1.0)) * scale_y))
+                            else:
+                                v_shape.line.fill.background()
+                        except Exception:
+                            pass
+            except Exception as ex_vec:
+                print("Vector drawing warning:", ex_vec)
+
+            # 3. Financial / ITR Native Table Detection & Cell Reconstruction
+            table_bboxes = []
+            try:
+                tabs = page.find_tables()
+                if tabs and tabs.tables:
+                    for tab in tabs.tables:
+                        tx0, ty0, tx1, ty1 = tab.bbox
+                        table_bboxes.append((tx0, ty0, tx1, ty1))
+                        t_left = max(0, min(int(Pt(tx0) * scale_x), s_width - Pt(5)))
+                        t_top = max(0, min(int(Pt(ty0) * scale_y), s_height - Pt(5)))
+                        t_width = min(int(Pt(tx1 - tx0) * scale_x), s_width - t_left)
+                        t_height = min(int(Pt(ty1 - ty0) * scale_y), s_height - t_top)
+
+                        if t_width > Pt(20) and t_height > Pt(20) and tab.row_count > 0 and tab.col_count > 0:
+                            t_shape = slide.shapes.add_table(tab.row_count, tab.col_count, t_left, t_top, t_width, t_height)
+                            table_obj = t_shape.table
+                            grid = tab.extract()
+
+                            # Adjust column widths
+                            try:
+                                if hasattr(tab, "cols") and tab.cols:
+                                    col_widths = []
+                                    for c_idx in range(len(tab.cols) - 1):
+                                        c_w = (tab.cols[c_idx + 1] - tab.cols[c_idx]) * scale_x
+                                        col_widths.append(int(Pt(c_w)))
+                                    for c_idx, cw in enumerate(col_widths[:tab.col_count]):
+                                        table_obj.columns[c_idx].width = max(Pt(15), cw)
+                            except Exception:
+                                pass
+
+                            for r_idx in range(tab.row_count):
+                                for c_idx in range(tab.col_count):
+                                    c_cell = table_obj.cell(r_idx, c_idx)
+                                    val_str = ""
+                                    if r_idx < len(grid) and c_idx < len(grid[r_idx]):
+                                        val_str = str(grid[r_idx][c_idx] or "").strip()
+
+                                    c_cell.text = val_str
+                                    c_cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                                    c_cell.margin_left = Pt(2)
+                                    c_cell.margin_right = Pt(2)
+                                    c_cell.margin_top = Pt(1)
+                                    c_cell.margin_bottom = Pt(1)
+                                    set_pptx_cell_border(c_cell, color_hex="666666", width_str="12700")
+
+                                    if c_cell.text_frame and c_cell.text_frame.paragraphs:
+                                        p_elem = c_cell.text_frame.paragraphs[0]
+                                        p_elem.alignment = PP_ALIGN.LEFT
+                                        if p_elem.runs:
+                                            for run in p_elem.runs:
+                                                run.font.name = "Arial"
+                                                run.font.size = Pt(9.0)
+                                                run.font.color.rgb = RGBColor(0, 0, 0)
+            except Exception as ex_tab:
+                print("Table extraction warning:", ex_tab)
+
+            # 4. Precision Editable Text Blocks
+            page_dict = page.get_text("dict")
+            for block in page_dict.get("blocks", []):
+                if block.get("type") == 0:  # Text block
+                    for line in block.get("lines", []):
+                        lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
+                        if lx0 >= lx1 or ly0 >= ly1:
+                            continue
+
+                        # Check if inside detected table
+                        in_table = False
+                        for tx0, ty0, tx1, ty1 in table_bboxes:
+                            if tx0 - 3 <= lx0 <= tx1 + 3 and ty0 - 3 <= ly0 <= ty1 + 3:
+                                in_table = True
+                                break
+                        if in_table:
+                            continue
+
+                        left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(5)))
+                        top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(5)))
+                        width = min(int(Pt(max(lx1 - lx0 + 4, 10)) * scale_x), s_width - left)
+                        height = min(int(Pt(max(ly1 - ly0 + 2, 8)) * scale_y), s_height - top)
+                        if width <= Pt(4) or height <= Pt(4):
+                            continue
+
+                        txBox = slide.shapes.add_textbox(left, top, width, height)
+                        tf = txBox.text_frame
+                        tf.word_wrap = False
+                        tf.clear()
+                        tf.margin_left = Pt(0)
+                        tf.margin_right = Pt(0)
+                        tf.margin_top = Pt(0)
+                        tf.margin_bottom = Pt(0)
+                        p_elem = tf.paragraphs[0]
+
+                        spans = line.get("spans", [])
+                        for span in spans:
+                            t_text = span.get("text", "")
+                            if not t_text:
+                                continue
+                            run = p_elem.add_run()
+                            run.text = t_text
+                            
+                            f_size = max(6.0, min(span.get("size", 10.0), 72.0))
+                            run.font.size = Pt(f_size * scale_y)
+                            run.font.name = map_font_name(span.get("font", "Arial"))
+                            run.font.color.rgb = safe_rgb_color(span.get("color", 0))
+                            
+                            flags = span.get("flags", 0)
+                            if flags & 16: run.font.bold = True
+                            if flags & 2: run.font.italic = True
 
         doc.close()
 

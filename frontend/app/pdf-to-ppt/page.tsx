@@ -194,80 +194,18 @@ export default function PdfToPowerpoint() {
             </div>
           )}
 
-          {/* Mode Selector */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Layers size={14} className="text-orange-600" /> Conversion Mode
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setMode("replica")}
-                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
-                  mode === "replica"
-                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
-                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span className="text-xs font-bold block mb-1">🌟 ILovePDF Parity</span>
-                <span className="text-[10px] text-gray-500 leading-tight">100% Visual Match + Selectable & Editable Text</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMode("editable")}
-                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
-                  mode === "editable"
-                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
-                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span className="text-xs font-bold block mb-1">✏️ Editable Objects</span>
-                <span className="text-[10px] text-gray-500 leading-tight">Native PPT Tables & Editable Shapes</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMode("hybrid")}
-                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
-                  mode === "hybrid"
-                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
-                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span className="text-xs font-bold block mb-1">🖼️ Pure Visual Replica</span>
-                <span className="text-[10px] text-gray-500 leading-tight">High-Res Image Slide Layer</span>
-              </button>
+          {/* Single Perfect Tool Highlight Box */}
+          <div className="mb-6 bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/10 border border-orange-200 rounded-xl p-4 flex items-center gap-3">
+            <div className="bg-orange-600 text-white p-2.5 rounded-lg flex-shrink-0 shadow-sm">
+              <Sparkles size={20} />
             </div>
-          </div>
-
-          {/* Quality / DPI Selector */}
-          <div className="mb-5">
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-              Rendering Quality (DPI)
-            </label>
-            <div className="grid grid-cols-5 gap-2">
-              {[
-                { label: "150 DPI", val: 150, desc: "Fast" },
-                { label: "200 DPI", val: 200, desc: "Medium" },
-                { label: "300 DPI", val: 300, desc: "Default" },
-                { label: "400 DPI", val: 400, desc: "Ultra" },
-                { label: "600 DPI", val: 600, desc: "Max" },
-              ].map((d) => (
-                <button
-                  key={d.val}
-                  type="button"
-                  onClick={() => setDpi(d.val)}
-                  className={`py-2 px-1 rounded-lg border text-center transition ${
-                    dpi === d.val
-                      ? "bg-orange-600 text-white font-bold border-orange-600 shadow-sm"
-                      : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-                  }`}
-                >
-                  <div className="text-xs font-bold">{d.label}</div>
-                  <div className={`text-[9px] ${dpi === d.val ? "text-orange-100" : "text-gray-400"}`}>{d.desc}</div>
-                </button>
-              ))}
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider mb-0.5">
+                Native Vector & Fully Editable Engine
+              </h4>
+              <p className="text-[11px] text-gray-600 leading-tight">
+                100% Vector Table Grids, Cell Borders, Fill Colors, Form Checkboxes & Editable Text. Zero Full-Page Background Images!
+              </p>
             </div>
           </div>
 
@@ -296,7 +234,7 @@ export default function PdfToPowerpoint() {
               className="w-full bg-orange-600 text-white py-3.5 rounded-xl font-bold hover:bg-orange-700 disabled:opacity-50 transition shadow-lg flex justify-center items-center gap-2 text-base active:scale-[0.99]"
             >
               {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <LayoutTemplate className="w-5 h-5" />}
-              {loading ? "Converting PDF to PowerPoint..." : "Convert to PowerPoint"}
+              {loading ? "Converting PDF to PowerPoint..." : "Convert to PowerPoint (.pptx)"}
             </button>
 
             {downloadUrl && (
