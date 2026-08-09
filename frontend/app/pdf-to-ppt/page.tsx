@@ -12,6 +12,14 @@ export default function PdfToPowerpoint() {
   const [mode, setMode] = useState<"replica" | "hybrid" | "editable">("replica");
   const [dpi, setDpi] = useState<number>(300);
   const [pageRange, setPageRange] = useState<string>("");
+  const [quality, setQuality] = useState<"standard" | "high" | "maximum">("high");
+  const [preservePageSize, setPreservePageSize] = useState<boolean>(true);
+  const [preserveOrientation, setPreserveOrientation] = useState<boolean>(true);
+  const [preserveImages, setPreserveImages] = useState<boolean>(true);
+  const [preserveFonts, setPreserveFonts] = useState<boolean>(true);
+  const [preserveTables, setPreserveTables] = useState<boolean>(true);
+  const [preserveTransparency, setPreserveTransparency] = useState<boolean>(true);
+  const [preserveBackgrounds, setPreserveBackgrounds] = useState<boolean>(true);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.pptx");
   const [showHelp, setShowHelp] = useState(false);
@@ -39,6 +47,14 @@ export default function PdfToPowerpoint() {
     formData.append("file", file);
     formData.append("mode", mode);
     formData.append("dpi", dpi.toString());
+    formData.append("quality", quality);
+    formData.append("preserve_page_size", preservePageSize.toString());
+    formData.append("preserve_orientation", preserveOrientation.toString());
+    formData.append("preserve_images", preserveImages.toString());
+    formData.append("preserve_fonts", preserveFonts.toString());
+    formData.append("preserve_tables", preserveTables.toString());
+    formData.append("preserve_transparency", preserveTransparency.toString());
+    formData.append("preserve_backgrounds", preserveBackgrounds.toString());
     if (pageRange) {
       formData.append("page_range", pageRange);
     }
@@ -194,18 +210,164 @@ export default function PdfToPowerpoint() {
             </div>
           )}
 
-          {/* Single Perfect Tool Highlight Box */}
-          <div className="mb-6 bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/10 border border-orange-200 rounded-xl p-4 flex items-center gap-3">
-            <div className="bg-orange-600 text-white p-2.5 rounded-lg flex-shrink-0 shadow-sm">
-              <Sparkles size={20} />
+          {/* Conversion Mode Card Grid */}
+          <div className="mb-5">
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Layers size={14} className="text-orange-600" /> Conversion Mode
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: "replica", title: "🌟 Visual Replica", desc: "Pixel-Perfect Image Slide Layer" },
+                { id: "hybrid", title: "⚡ Smart Hybrid", desc: "Base HD Image + Selectable Text" },
+                { id: "editable", title: "✏️ Editable Objects", desc: "Native Tables, Shapes & Text" }
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setMode(m.id as any)}
+                  className={`p-2.5 rounded-xl text-left border transition flex flex-col justify-between ${
+                    mode === m.id
+                      ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-bold"
+                      : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  <span className="text-[11px] font-bold block mb-0.5">{m.title}</span>
+                  <span className="text-[9px] text-gray-500 leading-tight block">{m.desc}</span>
+                </button>
+              ))}
             </div>
+          </div>
+
+          {/* Quality Options & DPI Override */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
             <div>
-              <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider mb-0.5">
-                Native Vector & Fully Editable Engine
-              </h4>
-              <p className="text-[11px] text-gray-600 leading-tight">
-                100% Vector Table Grids, Cell Borders, Fill Colors, Form Checkboxes & Editable Text. Zero Full-Page Background Images!
-              </p>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Sliders size={14} className="text-orange-600" /> Rendering Quality
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: "standard", label: "Standard", dpi: 200 },
+                  { id: "high", label: "High", dpi: 300 },
+                  { id: "maximum", label: "Maximum", dpi: 600 }
+                ].map((q) => (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => {
+                      setQuality(q.id as any);
+                      setDpi(q.dpi);
+                    }}
+                    className={`py-2 px-1 rounded-lg border text-center transition ${
+                      quality === q.id
+                        ? "bg-orange-600 text-white font-bold border-orange-600 shadow-sm"
+                        : "bg-gray-55 border-gray-200 text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    <span className="text-xs font-bold block">{q.label}</span>
+                    <span className="text-[9px] opacity-80 block">{q.dpi} DPI</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                DPI Manual Override
+              </label>
+              <div className="grid grid-cols-5 gap-1">
+                {[150, 200, 300, 400, 600].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      setDpi(d);
+                      if (d <= 200) setQuality("standard");
+                      else if (d <= 300) setQuality("high");
+                      else setQuality("maximum");
+                    }}
+                    className={`py-2 px-1 rounded-lg border text-center transition ${
+                      dpi === d
+                        ? "bg-amber-600 text-white font-bold border-amber-600 shadow-sm"
+                        : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    <span className="text-xs font-mono font-bold block">{d}</span>
+                    <span className="text-[7px] text-gray-400 block">DPI</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Preserve Grid Checklist */}
+          <div className="mb-5 bg-slate-50 border border-slate-200/80 rounded-xl p-3.5">
+            <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+              <ShieldCheck size={14} className="text-orange-600" /> Preserve Document Features
+            </label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={preservePageSize}
+                  onChange={(e) => setPreservePageSize(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                Page Specs & Aspect Ratio
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={preserveOrientation}
+                  onChange={(e) => setPreserveOrientation(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                PDF Rotation / Orientation
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={preserveImages}
+                  onChange={(e) => setPreserveImages(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                Embedded Logos / Stamps
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={preserveFonts}
+                  onChange={(e) => setPreserveFonts(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                Fonts / Typography
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={preserveTables}
+                  onChange={(e) => setPreserveTables(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                Table Shapes & Grid Lines
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium">
+                <input
+                  type="checkbox"
+                  checked={preserveTransparency}
+                  onChange={(e) => setPreserveTransparency(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                Fills & Transparency
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-gray-700 font-medium col-span-2">
+                <input
+                  type="checkbox"
+                  checked={preserveBackgrounds}
+                  onChange={(e) => setPreserveBackgrounds(e.target.checked)}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3.5 h-3.5"
+                />
+                Vector Drawings & Background Fills
+              </label>
             </div>
           </div>
 
