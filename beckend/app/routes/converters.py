@@ -894,23 +894,6 @@ async def pdf_to_ppt(
         prs.slide_width = int(Pt(first_page.rect.width))
         prs.slide_height = int(Pt(first_page.rect.height))
 
-        mode_str = (mode or "replica").lower().strip()
-
-        for page_num in pages_to_process:
-            page = doc.load_page(page_num)
-            slide = prs.slides.add_slide(blank_slide_layout)
-            
-            p_width = Pt(page.rect.width)
-            p_height = Pt(page.rect.height)
-            s_width = int(p_width) if p_width else prs.slide_width
-            s_height = int(p_height) if p_height else prs.slide_height
-
-            scale_x = s_width / p_width if p_width else 1.0
-            scale_y = s_height / p_height if p_height else 1.0
-
-            # Rule 1: Page-Type Detection for 400 DPI Minimum on Table/Form pages
-            page_target_dpi = detect_page_dpi(page, requested_dpi=dpi_val)
-
         # Single Unified Engine: 100% Vector, Color-Preserved & Editable PPT (NO Full-Page Background Image)
         for page_num in pages_to_process:
             page = doc.load_page(page_num)
