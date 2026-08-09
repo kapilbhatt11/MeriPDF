@@ -912,44 +912,24 @@ async def pdf_to_ppt(
             page_target_dpi = detect_page_dpi(page, requested_dpi=dpi_val)
 
             # ---------------------------------------------------------
-            # MODE A: VISUAL REPLICA / PIXEL-PERFECT (DEFAULT & FALLBACK)
             # ---------------------------------------------------------
-            if mode_str == "replica":
+            # MODE A: ILOVEPDF DUAL-LAYER PARITY (DEFAULT & RECOMMENDED)
+            # 1. Base Layer: High-Res 400 DPI PDF Page Replica (100% exact table cells, borders, colors, lines)
+            # 2. Additive Vector Grid Overlay: Crisp vector hairline border shapes
+            # 3. Precision Text Layer: Transparent, selectable, copyable, & editable PowerPoint textboxes
+            # ---------------------------------------------------------
+            if mode_str in ["replica", "hybrid", "ilovepdf"]:
                 try:
-                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=page_target_dpi)
-                    slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
-                    if os.path.exists(img_path):
-                        os.remove(img_path)
-                    
-                    # Rule 4: Additive Vector Grid Overlay
-                    overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height)
-                except Exception as ex_rep:
-                    print(f"Visual replica failed for page {page_num}:", ex_rep)
-                    try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=200)
-                        slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
-                        if os.path.exists(img_path):
-                            os.remove(img_path)
-                    except Exception as ex_retry:
-                        print(f"Retry visual replica failed for page {page_num}:", ex_retry)
-
-            # ---------------------------------------------------------
-            # MODE B: SMART HYBRID (Visual Background + Text Overlays)
-            # ---------------------------------------------------------
-            elif mode_str == "hybrid":
-                try:
-                    # 1. Place High-Res Page Image as Background Layer (400 DPI min for table/form)
+                    # 1. Place High-Res Page Image as Base Background Replica (400 DPI min for table/form)
                     img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=page_target_dpi)
                     slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                     if os.path.exists(img_path):
                         os.remove(img_path)
 
-                    # Rule 4: Additive Vector Grid Overlay
+                    # 2. Additive Crisp Vector Gridlines Overlay
                     overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height)
-                    if os.path.exists(img_path):
-                        os.remove(img_path)
 
-                    # 2. Layer Selectable Text Overlays if digital text is present
+                    # 3. Layer Precision Transparent Editable Text Boxes matching PDF coordinates & typography
                     page_dict = page.get_text("dict")
                     for block in page_dict.get("blocks", []):
                         if block.get("type") == 0:  # Text block
@@ -958,11 +938,11 @@ async def pdf_to_ppt(
                                 if lx0 >= lx1 or ly0 >= ly1:
                                     continue
                                 
-                                left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(10)))
-                                top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(10)))
-                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), s_width - left)
-                                height = min(int(Pt(ly1 - ly0) * scale_y), s_height - top)
-                                if width <= Pt(5) or height <= Pt(5):
+                                left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(5)))
+                                top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(5)))
+                                width = min(int(Pt(max(lx1 - lx0 + 4, 10)) * scale_x), s_width - left)
+                                height = min(int(Pt(max(ly1 - ly0 + 2, 8)) * scale_y), s_height - top)
+                                if width <= Pt(4) or height <= Pt(4):
                                     continue
 
                                 txBox = slide.shapes.add_textbox(left, top, width, height)
@@ -975,23 +955,27 @@ async def pdf_to_ppt(
                                 tf.margin_bottom = Pt(0)
                                 p_elem = tf.paragraphs[0]
 
-                                for span in line.get("spans", []):
+                                spans = line.get("spans", [])
+                                for span in spans:
                                     t_text = span.get("text", "")
                                     if not t_text:
                                         continue
                                     run = p_elem.add_run()
                                     run.text = t_text
-                                    f_size = max(8.0, min(span.get("size", 11), 14.0))
-                                    run.font.size = int(Pt(f_size) * scale_y)
+                                    
+                                    # Exact PDF Font Size (no artificially forced caps!)
+                                    f_size = max(5.0, min(span.get("size", 10.0), 72.0))
+                                    run.font.size = Pt(f_size * scale_y)
                                     run.font.name = map_font_name(span.get("font", "Arial"))
                                     run.font.color.rgb = safe_rgb_color(span.get("color", 0))
+                                    
                                     flags = span.get("flags", 0)
                                     if flags & 16: run.font.bold = True
                                     if flags & 2: run.font.italic = True
-                except Exception as ex_hyb:
-                    print(f"Smart hybrid warning for page {page_num}, using raster image fallback:", ex_hyb)
+                except Exception as ex_par:
+                    print(f"ILovePDF Parity engine exception on page {page_num}:", ex_par)
                     try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=150)
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=200)
                         slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                         if os.path.exists(img_path): os.remove(img_path)
                     except Exception:

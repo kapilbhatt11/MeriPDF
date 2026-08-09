@@ -9,8 +9,8 @@ import { logPDFOperation } from "@/lib/analytics";
 export default function PdfToPowerpoint() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"replica" | "hybrid" | "editable">("editable");
-  const [dpi, setDpi] = useState<number>(200);
+  const [mode, setMode] = useState<"replica" | "hybrid" | "editable">("replica");
+  const [dpi, setDpi] = useState<number>(300);
   const [pageRange, setPageRange] = useState<string>("");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.pptx");
@@ -202,6 +202,19 @@ export default function PdfToPowerpoint() {
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
+                onClick={() => setMode("replica")}
+                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
+                  mode === "replica"
+                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
+                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                <span className="text-xs font-bold block mb-1">🌟 ILovePDF Parity</span>
+                <span className="text-[10px] text-gray-500 leading-tight">100% Visual Match + Selectable & Editable Text</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setMode("editable")}
                 className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
                   mode === "editable"
@@ -210,20 +223,7 @@ export default function PdfToPowerpoint() {
                 }`}
               >
                 <span className="text-xs font-bold block mb-1">✏️ Editable Objects</span>
-                <span className="text-[10px] text-gray-500 leading-tight">Native PPT Tables, Text & Shapes</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMode("replica")}
-                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
-                  mode === "replica"
-                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
-                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span className="text-xs font-bold block mb-1">🌟 Visual Replica</span>
-                <span className="text-[10px] text-gray-500 leading-tight">100% Exact Image Slide Layer</span>
+                <span className="text-[10px] text-gray-500 leading-tight">Native PPT Tables & Editable Shapes</span>
               </button>
 
               <button
@@ -235,8 +235,8 @@ export default function PdfToPowerpoint() {
                     : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
                 }`}
               >
-                <span className="text-xs font-bold block mb-1">⚡ Smart Hybrid</span>
-                <span className="text-[10px] text-gray-500 leading-tight">HD Background + Selectable Text</span>
+                <span className="text-xs font-bold block mb-1">🖼️ Pure Visual Replica</span>
+                <span className="text-[10px] text-gray-500 leading-tight">High-Res Image Slide Layer</span>
               </button>
             </div>
           </div>
