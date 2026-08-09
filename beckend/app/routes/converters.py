@@ -842,10 +842,14 @@ async def pdf_to_ppt(
     def set_pptx_cell_border(cell, color_hex="464646", width_str="12700"):
         try:
             tcPr = cell._tc.get_or_add_tcPr()
+            # Remove any existing borders
             for border_name in ["lnL", "lnR", "lnT", "lnB"]:
                 existing = tcPr.find(f"{{http://schemas.openxmlformats.org/drawingml/2006/main}}{border_name}")
                 if existing is not None:
                     tcPr.remove(existing)
+                    
+            # Create new borders
+            for border_name in ["lnL", "lnR", "lnT", "lnB"]:
                 xml_str = (
                     f'<a:{border_name} xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" w="{width_str}" cmpd="s">'
                     f'<a:solidFill><a:srgbClr val="{color_hex}"/></a:solidFill>'
@@ -853,6 +857,22 @@ async def pdf_to_ppt(
                     f'</a:{border_name}>'
                 )
                 tcPr.append(parse_xml(xml_str))
+                
+            # Reorder children elements strictly: borders must precede fills
+            tag_order = ["lnL", "lnR", "lnT", "lnB", "lnTlToBr", "lnBlToTr", "cell3D", "solidFill", "noFill", "gradFill", "blipFill", "pattFill", "grpFill"]
+            children = list(tcPr)
+            for child in children:
+                tcPr.remove(child)
+            
+            def get_order_key(el):
+                local_name = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+                if local_name in tag_order:
+                    return tag_order.index(local_name)
+                return len(tag_order)
+                
+            children.sort(key=get_order_key)
+            for child in children:
+                tcPr.append(child)
         except Exception:
             pass
 
@@ -995,6 +1015,7 @@ async def pdf_to_ppt(
                                         val = ""
                                         if r_idx < len(grid) and c_idx < len(grid[r_idx]):
                                             val = str(grid[r_idx][c_idx] or "").strip()
+                                        val = "".join(c for c in val if ord(c) >= 32 or c in "\n\r\t")
                                         cell.text = val
                                         cell.vertical_anchor = MSO_ANCHOR.MIDDLE
                                         set_pptx_cell_border(cell, color_hex="666666", width_str="12700")
@@ -1113,6 +1134,7 @@ async def pdf_to_ppt(
 
                                 for span in line.get("spans", []):
                                     run_text = span.get("text", "")
+                                    run_text = "".join(c for c in run_text if ord(c) >= 32 or c in "\n\r\t")
                                     if not run_text: continue
                                     run = p_elem.add_run()
                                     run.text = run_text
