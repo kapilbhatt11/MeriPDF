@@ -112,7 +112,7 @@ export default function PdfToPowerpoint() {
             PDF to POWERPOINT
           </h1>
           <p className="text-orange-200/80 text-sm mt-1">
-            Universal Pixel-Preserving PDF to PPT Conversion Engine • ILovePDF Fidelity Parity
+            Universal Pixel-Preserving PDF to PPT Conversion Engine • High-Fidelity Match
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -210,7 +210,7 @@ export default function PdfToPowerpoint() {
                 }`}
               >
                 <span className="text-xs font-bold block mb-1">🌟 Visual Replica</span>
-                <span className="text-[10px] text-gray-500 leading-tight">100% Exact Match (ILovePDF Parity)</span>
+                <span className="text-[10px] text-gray-500 leading-tight">100% Exact Visual Match</span>
               </button>
 
               <button

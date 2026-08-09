@@ -709,11 +709,19 @@ async def pdf_to_ppt(
     from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
     from pptx.oxml import parse_xml
 
-    def set_pptx_cell_border(cell, color_hex="808080", width_str="12700"):
+    def set_pptx_cell_border(cell, color_hex="404040", width_str="12700"):
         try:
             tcPr = cell._tc.get_or_add_tcPr()
             for border_name in ["lnL", "lnR", "lnT", "lnB"]:
-                xml_str = f'<a:{border_name} xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" w="{width_str}"><a:solidFill><a:srgbClr val="{color_hex}"/></a:solidFill></a:{border_name}>'
+                existing = tcPr.find(f"{{http://schemas.openxmlformats.org/drawingml/2006/main}}{border_name}")
+                if existing is not None:
+                    tcPr.remove(existing)
+                xml_str = (
+                    f'<a:{border_name} xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" w="{width_str}" cmpd="s">'
+                    f'<a:solidFill><a:srgbClr val="{color_hex}"/></a:solidFill>'
+                    f'<a:prstDash val="solid"/>'
+                    f'</a:{border_name}>'
+                )
                 tcPr.append(parse_xml(xml_str))
         except Exception:
             pass
@@ -956,7 +964,7 @@ async def pdf_to_ppt(
                     except Exception:
                         drawings = []
 
-                    if len(drawings) < 120:
+                    if len(drawings) < 350:
                         for d in drawings:
                             rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
                             if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
