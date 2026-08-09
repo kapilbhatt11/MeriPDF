@@ -831,7 +831,9 @@ async def pdf_to_ppt(
     preserve_fonts: bool = Form(True),
     preserve_tables: bool = Form(True),
     preserve_transparency: bool = Form(True),
-    preserve_backgrounds: bool = Form(True)
+    preserve_backgrounds: bool = Form(True),
+    max_images_per_page: int = Form(500),
+    max_drawings_per_page: int = Form(5000)
 ):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -839,7 +841,7 @@ async def pdf_to_ppt(
     import shutil
     import subprocess
 
-    def set_pptx_cell_border(cell, color_hex="464646", width_str="12700"):
+    def set_pptx_cell_border(cell, color_hex="464646", width_str="12700", border_sides=["lnL", "lnR", "lnT", "lnB"]):
         try:
             tcPr = cell._tc.get_or_add_tcPr()
             # Remove any existing borders
@@ -848,8 +850,8 @@ async def pdf_to_ppt(
                 if existing is not None:
                     tcPr.remove(existing)
                     
-            # Create new borders
-            for border_name in ["lnL", "lnR", "lnT", "lnB"]:
+            # Create new borders for specified sides only
+            for border_name in border_sides:
                 xml_str = (
                     f'<a:{border_name} xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" w="{width_str}" cmpd="s">'
                     f'<a:solidFill><a:srgbClr val="{color_hex}"/></a:solidFill>'
@@ -886,15 +888,125 @@ async def pdf_to_ppt(
         if "courier" in name or "mono" in name: return "Courier New"
         return "Arial"
 
-    def calculate_similarity(img1_path, img2_path):
+    def has_devanagari(text: str) -> bool:
+        return any(0x0900 <= ord(c) <= 0x097F for c in text)
+
+    def split_text_by_script(text: str):
+        if not text:
+            return []
+        segments = []
+        current_segment = []
+        is_current_deva = has_devanagari(text[0])
+        
+        for char in text:
+            is_char_deva = has_devanagari(char)
+            if char.isspace() or char in ".,;:!?()-[]{}'\"“”'":
+                current_segment.append(char)
+            elif is_char_deva == is_current_deva:
+                current_segment.append(char)
+            else:
+                segments.append(("".join(current_segment), is_current_deva))
+                current_segment = [char]
+                is_current_deva = is_char_deva
+                
+        if current_segment:
+            segments.append(("".join(current_segment), is_current_deva))
+        return segments
+
+    def check_cell_borders(cell_rect, drawings, threshold=3.0):
         try:
-            from PIL import Image, ImageChops, ImageStat
-            im1 = Image.open(img1_path).convert('L').resize((300, 300))
-            im2 = Image.open(img2_path).convert('L').resize((300, 300))
-            diff = ImageChops.difference(im1, im2)
-            return 100.0 * (1.0 - (ImageStat.Stat(diff).mean[0] / 255.0))
+            cx0, cy0, cx1, cy1 = cell_rect
         except Exception:
-            return 100.0
+            return {"lnL": False, "lnR": False, "lnT": False, "lnB": False}
+            
+        borders = {"lnL": False, "lnR": False, "lnT": False, "lnB": False}
+        for d in drawings:
+            items = d.get("items", [])
+            for item in items:
+                cmd = item[0]
+                if cmd == "l":
+                    p1, p2 = item[1], item[2]
+                    x0, y0 = min(p1.x, p2.x), min(p1.y, p2.y)
+                    x1, y1 = max(p1.x, p2.x), max(p1.y, p2.y)
+                    if abs(x0 - x1) <= 2.0:
+                        if abs(x0 - cx0) <= threshold and y0 <= cy1 + threshold and y1 >= cy0 - threshold:
+                            borders["lnL"] = True
+                        if abs(x0 - cx1) <= threshold and y0 <= cy1 + threshold and y1 >= cy0 - threshold:
+                            borders["lnR"] = True
+                    if abs(y0 - y1) <= 2.0:
+                        if abs(y0 - cy0) <= threshold and x0 <= cx1 + threshold and x1 >= cx0 - threshold:
+                            borders["lnT"] = True
+                        if abs(y0 - cy1) <= threshold and x0 <= cx1 + threshold and x1 >= cx0 - threshold:
+                            borders["lnB"] = True
+                elif cmd == "re":
+                    r = item[1]
+                    rx0, ry0, rx1, ry1 = r.x0, r.y0, r.x1, r.y1
+                    if abs(ry0 - cy0) <= threshold and rx0 <= cx1 + threshold and rx1 >= cx0 - threshold:
+                        borders["lnT"] = True
+                    if abs(ry1 - cy1) <= threshold and rx0 <= cx1 + threshold and rx1 >= cx0 - threshold:
+                        borders["lnB"] = True
+                    if abs(rx0 - cx0) <= threshold and ry0 <= cy1 + threshold and ry1 >= cy0 - threshold:
+                        borders["lnL"] = True
+                    if abs(rx1 - cx1) <= threshold and ry0 <= cy1 + threshold and ry1 >= cy0 - threshold:
+                        borders["lnR"] = True
+            
+            if not items:
+                rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                if rx0 < rx1 and ry0 < ry1:
+                    if abs(ry0 - cy0) <= threshold and rx0 <= cx1 + threshold and rx1 >= cx0 - threshold:
+                        borders["lnT"] = True
+                    if abs(ry1 - cy1) <= threshold and rx0 <= cx1 + threshold and rx1 >= cx0 - threshold:
+                        borders["lnB"] = True
+                    if abs(rx0 - cx0) <= threshold and ry0 <= cy1 + threshold and ry1 >= cy0 - threshold:
+                        borders["lnL"] = True
+                    if abs(rx1 - cx1) <= threshold and ry0 <= cy1 + threshold and ry1 >= cy0 - threshold:
+                        borders["lnR"] = True
+        return borders
+
+    def calculate_similarity(img1_path, img2_path):
+        """
+        Calculates both SSIM (Structural Similarity Index) and Canny edge IoU
+        at 1000px long edge resolution.
+        """
+        try:
+            import cv2
+            import numpy as np
+            from skimage.metrics import structural_similarity as ssim
+
+            im1 = cv2.imread(img1_path, cv2.IMREAD_GRAYSCALE)
+            im2 = cv2.imread(img2_path, cv2.IMREAD_GRAYSCALE)
+
+            if im1 is None or im2 is None:
+                return 0.0, 0.0
+
+            def resize_to_long_edge(img, long_edge=1000):
+                h, w = img.shape[:2]
+                scale = long_edge / max(h, w)
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+            im1 = resize_to_long_edge(im1, 1000)
+            im2 = resize_to_long_edge(im2, 1000)
+
+            if im1.shape != im2.shape:
+                im2 = cv2.resize(im2, (im1.shape[1], im1.shape[0]), interpolation=cv2.INTER_AREA)
+
+            # Calculate SSIM
+            ssim_val, _ = ssim(im1, im2, full=True)
+            ssim_score = float(ssim_val * 100.0)
+
+            # Calculate Canny edge based IoU
+            edges1 = cv2.Canny(im1, 50, 150)
+            edges2 = cv2.Canny(im2, 50, 150)
+
+            intersection = np.logical_and(edges1, edges2).sum()
+            union = np.logical_or(edges1, edges2).sum()
+            edge_iou = float((intersection / union) * 100.0) if union > 0 else 100.0
+
+            return ssim_score, edge_iou
+        except Exception:
+            return 100.0, 100.0
 
     try:
         temp_dir = tempfile.gettempdir()
@@ -915,14 +1027,23 @@ async def pdf_to_ppt(
         prs = Presentation()
         blank_slide_layout = prs.slide_layouts[6]
 
-        # Use the first page dimensions for the base presentation, converted to EMU
-        first_page = doc.load_page(pages_to_process[0])
-        first_w = Pt(first_page.rect.width)
-        first_h = Pt(first_page.rect.height)
+        # Find the page with the largest area (width * height) among pages_to_process
+        largest_page_num = pages_to_process[0]
+        max_area = 0.0
+        for p_idx in pages_to_process:
+            p_obj = doc.load_page(p_idx)
+            area = p_obj.rect.width * p_obj.rect.height
+            if area > max_area:
+                max_area = area
+                largest_page_num = p_idx
+
+        largest_page = doc.load_page(largest_page_num)
+        largest_w = Pt(largest_page.rect.width)
+        largest_h = Pt(largest_page.rect.height)
         
         if preserve_page_size:
-            prs.slide_width = int(first_w)
-            prs.slide_height = int(first_h)
+            prs.slide_width = int(largest_w)
+            prs.slide_height = int(largest_h)
         else:
             prs.slide_width = int(Pt(720))
             prs.slide_height = int(Pt(540))
@@ -930,6 +1051,12 @@ async def pdf_to_ppt(
         s_width_pts = prs.slide_width / 12700.0
         s_height_pts = prs.slide_height / 12700.0
         aspect_slide = s_width_pts / s_height_pts
+
+        qa_report = {
+            "qa_verified": False,
+            "skip_reason": None,
+            "pages": {}
+        }
 
         for page_num in pages_to_process:
             page = doc.load_page(page_num)
@@ -939,7 +1066,6 @@ async def pdf_to_ppt(
             p_height = page.rect.height
             aspect_page = p_width / p_height
 
-            # Mismatched sizes / rotation offset mapping:
             # Aspect ratio matching & Letterboxing layout calculations
             if abs(aspect_slide - aspect_page) < 0.05:
                 fit_w = s_width_pts
@@ -947,6 +1073,10 @@ async def pdf_to_ppt(
                 left_offset = 0.0
                 top_offset = 0.0
             else:
+                qa_report["pages"][str(page_num+1)] = qa_report["pages"].get(str(page_num+1), {})
+                qa_report["pages"][str(page_num+1)]["letterboxed"] = True
+                qa_report["pages"][str(page_num+1)]["reason"] = "page aspect ratio differs from presentation slide size"
+
                 if aspect_page > aspect_slide:
                     fit_w = s_width_pts
                     fit_h = s_width_pts / aspect_page
@@ -964,7 +1094,7 @@ async def pdf_to_ppt(
             # -------------------------------------------------------------
             # LAYER A: BASE IMAGE LAYER (Replica and Hybrid modes)
             # -------------------------------------------------------------
-            if mode in ["replica", "hybrid"]:
+            if mode == "replica":
                 page_target_dpi = detect_page_dpi(page, requested_dpi=dpi_val)
                 if quality == "maximum":
                     page_target_dpi = max(page_target_dpi, 600)
@@ -975,6 +1105,25 @@ async def pdf_to_ppt(
 
                 if preserve_tables:
                     # Enforce hairline grid overlay on visual background images
+                    overlay_vector_gridlines(slide, page, scale_x, scale_y, prs.slide_width, prs.slide_height, left_offset, top_offset)
+
+            elif mode == "hybrid":
+                # Draw left and right vertical boundary lines (Bug 1 - prevents overlapping / double text)
+                try:
+                    from pptx.dml.color import RGBColor
+                    left_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, int(Pt(left_offset)), int(Pt(top_offset)), int(Pt(1.2)), int(Pt(fit_h)))
+                    left_line.fill.solid()
+                    left_line.fill.fore_color.rgb = RGBColor(180, 180, 180)
+                    left_line.line.fill.background()
+
+                    right_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, int(Pt(left_offset + fit_w - 1.2)), int(Pt(top_offset)), int(Pt(1.2)), int(Pt(fit_h)))
+                    right_line.fill.solid()
+                    right_line.fill.fore_color.rgb = RGBColor(180, 180, 180)
+                    right_line.line.fill.background()
+                except Exception:
+                    pass
+
+                if preserve_tables:
                     overlay_vector_gridlines(slide, page, scale_x, scale_y, prs.slide_width, prs.slide_height, left_offset, top_offset)
 
             # -------------------------------------------------------------
@@ -1016,16 +1165,55 @@ async def pdf_to_ppt(
                                         if r_idx < len(grid) and c_idx < len(grid[r_idx]):
                                             val = str(grid[r_idx][c_idx] or "").strip()
                                         val = "".join(c for c in val if ord(c) >= 32 or c in "\n\r\t")
-                                        cell.text = val
+                                        
+                                        # Detect cell border presence (Bug 6)
+                                        cell_rect = None
+                                        if hasattr(tab, "cells") and tab.cells:
+                                            cell_idx = r_idx * tab.col_count + c_idx
+                                            if cell_idx < len(tab.cells):
+                                                cell_rect = tab.cells[cell_idx]
+                                                
+                                        border_sides = []
+                                        drawings = []
+                                        try:
+                                            drawings = page.get_drawings()
+                                        except Exception:
+                                            pass
+                                            
+                                        if cell_rect:
+                                            borders_map = check_cell_borders(cell_rect, drawings)
+                                            if not any(borders_map.values()):
+                                                border_sides = ["lnL", "lnR", "lnT", "lnB"]
+                                            else:
+                                                border_sides = [side for side, present in borders_map.items() if present]
+                                        else:
+                                            border_sides = ["lnL", "lnR", "lnT", "lnB"]
+                                            
                                         cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                                        set_pptx_cell_border(cell, color_hex="666666", width_str="12700")
+                                        set_pptx_cell_border(cell, color_hex="666666", width_str="12700", border_sides=border_sides)
 
+                                        # Reconstruct runs inside cell split by Devanagari script boundaries (Bug 2)
                                         if cell.text_frame and cell.text_frame.paragraphs:
                                             p = cell.text_frame.paragraphs[0]
                                             p.alignment = PP_ALIGN.LEFT
-                                            if p.runs:
-                                                for r in p.runs:
-                                                    r.font.name = "Arial"
+                                            p.text = ""  # Clear simple assignment
+                                            
+                                            segments = split_text_by_script(val)
+                                            if not segments:
+                                                # If empty, add a blank run just to preserve formatting
+                                                r = p.add_run()
+                                                r.font.name = "Arial"
+                                                r.font.size = Pt(8.5)
+                                                r.font.color.rgb = RGBColor(0, 0, 0)
+                                            else:
+                                                for seg_text, is_deva in segments:
+                                                    if not seg_text: continue
+                                                    r = p.add_run()
+                                                    r.text = seg_text
+                                                    if is_deva:
+                                                        r.font.name = "Nirmala UI"
+                                                    else:
+                                                        r.font.name = "Arial"
                                                     r.font.size = Pt(8.5)
                                                     r.font.color.rgb = RGBColor(0, 0, 0)
                 except Exception:
@@ -1035,7 +1223,15 @@ async def pdf_to_ppt(
             if mode == "editable" and preserve_images:
                 try:
                     img_list = page.get_images()
-                    for img_idx, img_info in enumerate(img_list[:10]):
+                    total_images = len(img_list)
+                    images_to_process = img_list[:max_images_per_page]
+                    dropped_images = max(0, total_images - len(images_to_process))
+                    if dropped_images > 0:
+                        print(f"[WARNING] Page {page_num+1}: image count {total_images} exceeds cap, {dropped_images} images skipped")
+                        qa_report["pages"][str(page_num+1)] = qa_report["pages"].get(str(page_num+1), {})
+                        qa_report["pages"][str(page_num+1)]["dropped_images"] = dropped_images
+
+                    for img_idx, img_info in enumerate(images_to_process):
                         xref = img_info[0]
                         base_img = doc.extract_image(xref)
                         if base_img:
@@ -1065,7 +1261,15 @@ async def pdf_to_ppt(
             if mode == "editable" and preserve_backgrounds:
                 try:
                     drawings = page.get_drawings()
-                    for d in drawings[:400]:
+                    total_drawings = len(drawings)
+                    drawings_to_process = drawings[:max_drawings_per_page]
+                    dropped_drawings = max(0, total_drawings - len(drawings_to_process))
+                    if dropped_drawings > 0:
+                        print(f"[WARNING] Page {page_num+1}: drawing count {total_drawings} exceeds cap, {dropped_drawings} shapes skipped")
+                        qa_report["pages"][str(page_num+1)] = qa_report["pages"].get(str(page_num+1), {})
+                        qa_report["pages"][str(page_num+1)]["dropped_drawings"] = dropped_drawings
+
+                    for d in drawings_to_process:
                         stroke = d.get("color")
                         fill = d.get("fill")
                         line_w = d.get("width", 1.0)
@@ -1136,17 +1340,25 @@ async def pdf_to_ppt(
                                     run_text = span.get("text", "")
                                     run_text = "".join(c for c in run_text if ord(c) >= 32 or c in "\n\r\t")
                                     if not run_text: continue
-                                    run = p_elem.add_run()
-                                    run.text = run_text
                                     
-                                    font_sz = max(6.0, min(span.get("size", 10.0), 72.0))
-                                    run.font.size = Pt(font_sz * scale_y)
-                                    run.font.name = map_font_name(span.get("font", "Arial"))
-                                    run.font.color.rgb = safe_rgb_color(span.get("color", 0))
+                                    segments = split_text_by_script(run_text)
+                                    for seg_text, is_deva in segments:
+                                        if not seg_text: continue
+                                        run = p_elem.add_run()
+                                        run.text = seg_text
+                                        
+                                        font_sz = max(6.0, min(span.get("size", 10.0), 72.0))
+                                        run.font.size = Pt(font_sz * scale_y)
+                                        if is_deva:
+                                            run.font.name = "Nirmala UI"
+                                        else:
+                                            run.font.name = map_font_name(span.get("font", "Arial"))
+                                            
+                                        run.font.color.rgb = safe_rgb_color(span.get("color", 0))
 
-                                    flags = span.get("flags", 0)
-                                    if flags & 16: run.font.bold = True
-                                    if flags & 2: run.font.italic = True
+                                        flags = span.get("flags", 0)
+                                        if flags & 16: run.font.bold = True
+                                        if flags & 2: run.font.italic = True
                 except Exception:
                     pass
 
@@ -1167,52 +1379,69 @@ async def pdf_to_ppt(
                 temp_pdf_dir = tempfile.mkdtemp()
 
                 cmd = [soffice_bin, "--headless", "--convert-to", "pdf", "--outdir", temp_pdf_dir, temp_pptx]
-                res_qa = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
-                
-                if res_qa.returncode == 0:
-                    pdf_gen_name = os.path.splitext(os.path.basename(temp_pptx))[0] + ".pdf"
-                    pdf_gen_path = os.path.join(temp_pdf_dir, pdf_gen_name)
-                    if os.path.exists(pdf_gen_path):
-                        qa_doc = fitz.open(pdf_gen_path)
-                        if len(qa_doc) == len(pages_to_process):
-                            for idx, page_num in enumerate(pages_to_process):
-                                source_page = doc.load_page(page_num)
-                                qa_page = qa_doc.load_page(idx)
+                timeout_val = max(20, len(pages_to_process) * 3)
+                try:
+                    res_qa = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout_val)
+                    if res_qa.returncode == 0:
+                        pdf_gen_name = os.path.splitext(os.path.basename(temp_pptx))[0] + ".pdf"
+                        pdf_gen_path = os.path.join(temp_pdf_dir, pdf_gen_name)
+                        if os.path.exists(pdf_gen_path):
+                            qa_doc = fitz.open(pdf_gen_path)
+                            if len(qa_doc) == len(pages_to_process):
+                                qa_report["qa_verified"] = True
+                                for idx, page_num in enumerate(pages_to_process):
+                                    source_page = doc.load_page(page_num)
+                                    qa_page = qa_doc.load_page(idx)
 
-                                img_src = os.path.join(temp_dir, f"qa_s_{page_num}_{uuid.uuid4().hex[:4]}.png")
-                                img_gen = os.path.join(temp_dir, f"qa_g_{page_num}_{uuid.uuid4().hex[:4]}.png")
-                                try:
-                                    source_page.get_pixmap(dpi=150).save(img_src)
-                                    qa_page.get_pixmap(dpi=150).save(img_gen)
-                                    sim = calculate_similarity(img_src, img_gen)
-                                    print(f"[QA Check] Page {page_num + 1} Visual Similarity: {sim:.2f}%")
+                                    img_src = os.path.join(temp_dir, f"qa_s_{page_num}_{uuid.uuid4().hex[:4]}.png")
+                                    img_gen = os.path.join(temp_dir, f"qa_g_{page_num}_{uuid.uuid4().hex[:4]}.png")
+                                    try:
+                                        source_page.get_pixmap(dpi=150).save(img_src)
+                                        qa_page.get_pixmap(dpi=150).save(img_gen)
+                                        ssim_score, edge_iou = calculate_similarity(img_src, img_gen)
+                                        print(f"[QA Check] Page {page_num + 1} Visual Similarity: SSIM={ssim_score:.2f}%, Edge IoU={edge_iou:.2f}%")
 
-                                    # If similarity falls below 92%, fallback this slide to Visual Replica
-                                    if sim < 92.0:
-                                        print(f"[QA Fallback] Slide {page_num + 1} similarity is too low. Reverting to Visual Replica.")
-                                        slide = prs.slides[idx]
-                                        for s_shape in list(slide.shapes):
-                                            try:
-                                                slide.shapes.element.remove(s_shape.element)
-                                            except Exception:
-                                                pass
+                                        qa_report["pages"][str(page_num+1)] = qa_report["pages"].get(str(page_num+1), {})
+                                        qa_report["pages"][str(page_num+1)]["ssim"] = ssim_score
+                                        qa_report["pages"][str(page_num+1)]["edge_iou"] = edge_iou
+                                        qa_report["pages"][str(page_num+1)]["fallback_triggered"] = False
 
-                                        # Re-render at auto-dpi
-                                        page_target_dpi = detect_page_dpi(source_page, requested_dpi=dpi_val)
-                                        f_img = render_page_as_highres_image(source_page, temp_dir, page_num, dpi=page_target_dpi)
-                                        slide.shapes.add_picture(f_img, int(Pt(left_offset)), int(Pt(top_offset)), int(Pt(fit_w)), int(Pt(fit_h)))
-                                        if os.path.exists(f_img): os.remove(f_img)
+                                        # If similarity falls below 92%, fallback this slide to Visual Replica
+                                        if ssim_score < 92.0:
+                                            print(f"[QA Fallback] Slide {page_num + 1} SSIM {ssim_score:.2f}% < 92%. Reverting to Visual Replica.")
+                                            qa_report["pages"][str(page_num+1)]["fallback_triggered"] = True
+                                            slide = prs.slides[idx]
+                                            for s_shape in list(slide.shapes):
+                                                try:
+                                                    slide.shapes.element.remove(s_shape.element)
+                                                except Exception:
+                                                    pass
 
-                                        # Overlay vector lines
-                                        overlay_vector_gridlines(slide, source_page, scale_x, scale_y, prs.slide_width, prs.slide_height, left_offset, top_offset)
-                                finally:
-                                    if os.path.exists(img_src): os.remove(img_src)
-                                    if os.path.exists(img_gen): os.remove(img_gen)
-                        qa_doc.close()
+                                            # Re-render at auto-dpi
+                                            page_target_dpi = detect_page_dpi(source_page, requested_dpi=dpi_val)
+                                            f_img = render_page_as_highres_image(source_page, temp_dir, page_num, dpi=page_target_dpi)
+                                            slide.shapes.add_picture(f_img, int(Pt(left_offset)), int(Pt(top_offset)), int(Pt(fit_w)), int(Pt(fit_h)))
+                                            if os.path.exists(f_img): os.remove(f_img)
+
+                                            # Overlay vector lines
+                                            overlay_vector_gridlines(slide, source_page, scale_x, scale_y, prs.slide_width, prs.slide_height, left_offset, top_offset)
+                                    finally:
+                                        if os.path.exists(img_src): os.remove(img_src)
+                                        if os.path.exists(img_gen): os.remove(img_gen)
+                                qa_doc.close()
+                            else:
+                                qa_report["skip_reason"] = f"Slide count mismatch in converted temp PDF: expected {len(pages_to_process)}, got {len(qa_doc)}"
+                        else:
+                            qa_report["skip_reason"] = "Converted PDF file path does not exist"
+                    else:
+                        qa_report["skip_reason"] = f"LibreOffice command failed with returncode {res_qa.returncode}"
+                except subprocess.TimeoutExpired:
+                    qa_report["skip_reason"] = f"LibreOffice execution timed out after {timeout_val} seconds"
                 shutil.rmtree(temp_pdf_dir, ignore_errors=True)
                 if os.path.exists(temp_pptx): os.remove(temp_pptx)
             except Exception as e_qa:
                 print("Similarity QA check skipped:", e_qa)
+                qa_report["skip_reason"] = f"Similarity QA check raised exception: {str(e_qa)}"
 
         doc.close()
 
@@ -1223,11 +1452,17 @@ async def pdf_to_ppt(
         pptx_path = os.path.join(temp_dir, f"pptx_{uuid.uuid4().hex[:8]}.pptx")
         prs.save(pptx_path)
 
+        import json
+        headers = {
+            "Content-Disposition": f"attachment; filename={pptx_filename}",
+            "X-QA-Report": json.dumps(qa_report)
+        }
+
         return FileResponse(
             pptx_path,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             filename=pptx_filename,
-            headers={"Content-Disposition": f"attachment; filename={pptx_filename}"}
+            headers=headers
         )
 
     except HTTPException:
