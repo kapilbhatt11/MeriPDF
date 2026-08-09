@@ -667,11 +667,40 @@ def parse_page_range(range_str: str, max_pages: int) -> list[int]:
                 
     return sorted(list(pages)) if pages else list(range(max_pages))
 
+# Helper functions for PDF to PPT conversion
+def safe_rgb_color(color_val):
+    try:
+        if isinstance(color_val, (tuple, list)):
+            if len(color_val) >= 3:
+                r = int(color_val[0] * 255) if color_val[0] <= 1.0 else int(color_val[0])
+                g = int(color_val[1] * 255) if color_val[1] <= 1.0 else int(color_val[1])
+                b = int(color_val[2] * 255) if color_val[2] <= 1.0 else int(color_val[2])
+                return RGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+        elif isinstance(color_val, int):
+            b = color_val & 255
+            g = (color_val >> 8) & 255
+            r = (color_val >> 16) & 255
+            return RGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+    except Exception:
+        pass
+    return RGBColor(0, 0, 0)
+
+def render_page_as_highres_image(page, temp_dir, page_num, dpi=300):
+    pix = page.get_pixmap(dpi=dpi)
+    img_path = os.path.join(temp_dir, f"page_replica_{page_num}_{dpi}dpi.png")
+    pix.save(img_path)
+    return img_path
+
 # ---------------------------------------------------------------------
-# 📊 PDF to POWERPOINT (.pptx)
+# 📊 PDF to POWERPOINT (.pptx) — UNIVERSAL PIXEL-PRESERVING ENGINE
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-ppt")
-async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None)):
+async def pdf_to_ppt(
+    file: UploadFile = File(...),
+    mode: str = Form("replica"),
+    dpi: int = Form(300),
+    page_range: str = Form(None)
+):
     from pptx.enum.shapes import MSO_SHAPE
     from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
     from pptx.oxml import parse_xml
@@ -712,314 +741,310 @@ async def pdf_to_ppt(file: UploadFile = File(...), page_range: str = Form(None))
         pdf_bytes = await file.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         
-        prs = Presentation()
-        # Empty slide layout is usually index 6
-        blank_slide_layout = prs.slide_layouts[6]
-        
-        # Match PPT slide size to the first page of the PDF
-        if len(doc) > 0:
-            first_page = doc.load_page(0)
-            prs.slide_width = int(Pt(first_page.rect.width))
-            prs.slide_height = int(Pt(first_page.rect.height))
-            
-        # Safeguard processing count for OCR to avoid Render timeout / OOM
-        MAX_OCR_PAGES = 8
-        ocr_processed = 0
+        if len(doc) == 0:
+            raise HTTPException(status_code=400, detail="The provided PDF document is empty.")
+
+        # Sanitize DPI (150, 200, 300, 400, 600)
+        try:
+            dpi_val = int(dpi)
+        except (ValueError, TypeError):
+            dpi_val = 300
+        dpi_val = max(150, min(dpi_val, 600))
+
         pages_to_process = parse_page_range(page_range, len(doc))
-        
+        if not pages_to_process:
+            pages_to_process = list(range(len(doc)))
+
+        prs = Presentation()
+        blank_slide_layout = prs.slide_layouts[6]  # Completely blank slide layout
+
+        # Match presentation dimensions to the first processed page
+        first_page = doc.load_page(pages_to_process[0])
+        prs.slide_width = int(Pt(first_page.rect.width))
+        prs.slide_height = int(Pt(first_page.rect.height))
+
+        mode_str = (mode or "replica").lower().strip()
+
         for page_num in pages_to_process:
             page = doc.load_page(page_num)
             slide = prs.slides.add_slide(blank_slide_layout)
             
-            # Since slide size matches PDF size, scale is 1.0 (assuming uniform pages)
-            # We will recalculate scale just in case a page has a different size
-            pdf_width = page.rect.width
-            pdf_height = page.rect.height
-            scale_x = prs.slide_width / Pt(pdf_width) if pdf_width else 1.0
-            scale_y = prs.slide_height / Pt(pdf_height) if pdf_height else 1.0
-            
-            needs_ocr = page_needs_ocr(page)
-            if needs_ocr:
-                if ocr_processed >= MAX_OCR_PAGES:
-                    # Skip OCR for remaining pages and use standard extraction
+            p_width = Pt(page.rect.width)
+            p_height = Pt(page.rect.height)
+            scale_x = prs.slide_width / p_width if p_width else 1.0
+            scale_y = prs.slide_height / p_height if p_height else 1.0
+
+            # ---------------------------------------------------------
+            # MODE A: VISUAL REPLICA / PIXEL-PERFECT (DEFAULT & FALLBACK)
+            # ---------------------------------------------------------
+            if mode_str == "replica":
+                try:
+                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
+                    slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                    if os.path.exists(img_path):
+                        os.remove(img_path)
+                except Exception as ex_rep:
+                    print(f"Visual replica failed for page {page_num}:", ex_rep)
+
+            # ---------------------------------------------------------
+            # MODE B: SMART HYBRID (Visual Background + Text Overlays)
+            # ---------------------------------------------------------
+            elif mode_str == "hybrid":
+                try:
+                    # 1. Place High-Res Page Image as Background Layer
+                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
+                    slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                    if os.path.exists(img_path):
+                        os.remove(img_path)
+
+                    # 2. Layer Selectable Text Overlays if digital text is present
                     page_dict = page.get_text("dict")
-                else:
-                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
-                    ocr_processed += 1
-            else:
-                page_dict = page.get_text("dict")
-                
-            # 0. Background Images & Watermarks (Layer 0)
-            try:
-                image_list = page.get_images()
-                for img_idx, img_info in enumerate(image_list[:10]):
-                    xref = img_info[0]
-                    base_img = doc.extract_image(xref)
-                    if base_img:
-                        img_bytes = base_img["image"]
-                        img_ext = base_img["ext"]
-                        tmp_bg_path = os.path.join(temp_dir, f"tmp_bg_{page_num}_{img_idx}.{img_ext}")
-                        with open(tmp_bg_path, "wb") as f_img:
-                            f_img.write(img_bytes)
-                            
-                        img_rects = page.get_image_rects(xref)
-                        if img_rects:
-                            rx0, ry0, rx1, ry1 = img_rects[0]
-                            i_left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(10)))
-                            i_top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(10)))
-                            i_width = min(int(Pt(rx1 - rx0) * scale_x), prs.slide_width - i_left)
-                            i_height = min(int(Pt(ry1 - ry0) * scale_y), prs.slide_height - i_top)
-                        else:
-                            i_left, i_top = 0, 0
-                            i_width, i_height = prs.slide_width, prs.slide_height
-                            
-                        if i_width > 10 and i_height > 10:
-                            try:
-                                slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
-                            except Exception:
-                                pass
-                        if os.path.exists(tmp_bg_path):
-                            os.remove(tmp_bg_path)
-            except Exception as ex_img:
-                print("Background image extraction warning:", ex_img)
-
-            # 1. Table Extraction & Native PowerPoint Table Rendering (Layer 1)
-            table_bboxes = []
-            try:
-                tabs = page.find_tables()
-                if tabs and tabs.tables:
-                    for tab in tabs.tables:
-                        tx0, ty0, tx1, ty1 = tab.bbox
-                        table_bboxes.append((tx0, ty0, tx1, ty1))
-                        
-                        # Add native PPT Table shape
-                        t_left = max(0, min(int(Pt(tx0) * scale_x), prs.slide_width - Pt(10)))
-                        t_top = max(0, min(int(Pt(ty0) * scale_y), prs.slide_height - Pt(10)))
-                        t_width = min(int(Pt(tx1 - tx0) * scale_x), prs.slide_width - t_left)
-                        t_height = min(int(Pt(ty1 - ty0) * scale_y), prs.slide_height - t_top)
-                        
-                        if t_width > Pt(20) and t_height > Pt(20) and tab.row_count > 0 and tab.col_count > 0:
-                            t_shape = slide.shapes.add_table(tab.row_count, tab.col_count, t_left, t_top, t_width, t_height)
-                            table_obj = t_shape.table
-                            grid = tab.extract()
-                            
-                            for r_idx in range(tab.row_count):
-                                for c_idx in range(tab.col_count):
-                                    c_cell = table_obj.cell(r_idx, c_idx)
-                                    val_str = ""
-                                    if r_idx < len(grid) and c_idx < len(grid[r_idx]):
-                                        val_str = str(grid[r_idx][c_idx] or "").strip()
-                                        
-                                    c_cell.text = val_str
-                                    c_cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-                                    c_cell.margin_left = Pt(2)
-                                    c_cell.margin_right = Pt(2)
-                                    c_cell.margin_top = Pt(1)
-                                    c_cell.margin_bottom = Pt(1)
-                                    
-                                    # Set thin table cell border
-                                    set_pptx_cell_border(c_cell, color_hex="808080", width_str="12700")
-                                    
-                                    # Format paragraph text
-                                    if c_cell.text_frame and c_cell.text_frame.paragraphs:
-                                        p_elem = c_cell.text_frame.paragraphs[0]
-                                        p_elem.alignment = PP_ALIGN.LEFT
-                                        if p_elem.runs:
-                                            for run in p_elem.runs:
-                                                run.font.name = "Arial"
-                                                run.font.size = Pt(9.0)
-                                                run.font.color.rgb = RGBColor(0, 0, 0)
-            except Exception as ex:
-                print("Native table extraction warning:", ex)
-                
-            # 1. Background Vector Drawings (tables, structural borders, sidebars, shapes)
-            try:
-                drawings = page.get_drawings()
-            except Exception:
-                drawings = []
-                
-            # Cap vector shapes to 120 key elements for high performance on Render free tier
-            if len(drawings) < 120:
-                for d in drawings:
-                    rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
-                    # Sanitize coords
-                    if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
-                        continue
-                    dw = rx1 - rx0
-                    dh = ry1 - ry0
-                    
-                    # Ensure borders and lines are captured (dw > 0.5 or dh > 0.5)
-                    if dw > 0.5 or dh > 0.5:
-                        if dw < 0.8:
-                            dw = 1.0
-                        if dh < 0.8:
-                            dh = 1.0
-                            
-                        left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(5)))
-                        top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(5)))
-                        width = min(int(Pt(dw) * scale_x), prs.slide_width - left)
-                        height = min(int(Pt(dh) * scale_y), prs.slide_height - top)
-                        
-                        if width <= 0 or height <= 0:
-                            continue
-                            
-                        try:
-                            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
-                            
-                            # Set solid background fill ONLY if explicit non-white color fill is present
-                            if d.get("fill"):
-                                fr, fg, fb = d["fill"]
-                                # Avoid covering text with white boxes
-                                if not (fr > 0.92 and fg > 0.92 and fb > 0.92):
-                                    shape.fill.solid()
-                                    shape.fill.fore_color.rgb = RGBColor(int(fr*255), int(fg*255), int(fb*255))
-                                else:
-                                    shape.fill.background()
-                            else:
-                                shape.fill.background()
-                                
-                            # Set outline borders / column/row lines
-                            stroke_width = d.get("width", 0)
-                            if d.get("color") and (stroke_width > 0 or dw <= 1.5 or dh <= 1.5):
-                                sr, sg, sb = d.get("color", (0, 0, 0))
-                                shape.line.color.rgb = RGBColor(int(sr*255), int(sg*255), int(sb*255))
-                                shape.line.width = max(Pt(0.75), int(Pt(stroke_width) * scale_y))
-                            else:
-                                shape.line.fill.background()
-                        except Exception:
-                            pass
-                            
-            slide_w = prs.slide_width
-            slide_h = prs.slide_height
-
-            for block in page_dict.get("blocks", []):
-                bx0, by0, bx1, by1 = block.get("bbox", (0, 0, 0, 0))
-                
-                # Text Block
-                if block.get("type") == 0:
-                    for line in block.get("lines", []):
-                        lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
-                        
-                        # Sanitize coordinates
-                        if lx0 >= lx1 or ly0 >= ly1:
-                            continue
-                        if not (-5000 <= lx0 <= 5000 and -5000 <= ly0 <= 5000 and -5000 <= lx1 <= 5000 and -5000 <= ly1 <= 5000):
-                            continue
-                            
-                        # If text line falls inside an extracted native table, skip creating duplicate overlay textbox
-                        in_table = False
-                        for tx0, ty0, tx1, ty1 in table_bboxes:
-                            if tx0 - 3 <= lx0 <= tx1 + 3 and ty0 - 3 <= ly0 <= ty1 + 3:
-                                in_table = True
-                                break
-                        if in_table:
-                            continue
-                            
-                        # Strictly clamp coordinates to slide boundaries to prevent text overflow off-page
-                        clamped_x0 = max(0.0, min(lx0, pdf_width - 10.0))
-                        clamped_y0 = max(0.0, min(ly0, pdf_height - 10.0))
-                        
-                        left = max(0, min(int(Pt(clamped_x0) * scale_x), slide_w - Pt(15)))
-                        top = max(0, min(int(Pt(clamped_y0) * scale_y), slide_h - Pt(10)))
-                        
-                        max_w = slide_w - left
-                        width = min(int(Pt(lx1 - lx0 + 4) * scale_x), max_w)
-                        if width <= Pt(5):
-                            width = min(Pt(50), max_w)
-                            
-                        max_h = slide_h - top
-                        height = min(int(Pt(ly1 - ly0) * scale_y), max_h)
-                        if height <= Pt(5):
-                            height = min(Pt(15), max_h)
-                        
-                        try:
-                            txBox = slide.shapes.add_textbox(left, top, width, height)
-                            tf = txBox.text_frame
-                            tf.word_wrap = False  # Exact positioning requires no auto-wrapping
-                            tf.clear()
-                            
-                            # Remove margins for exact replica alignments
-                            tf.margin_left = Pt(0)
-                            tf.margin_right = Pt(0)
-                            tf.margin_top = Pt(0)
-                            tf.margin_bottom = Pt(0)
-                            
-                            p = tf.paragraphs[0]
-                            p.space_after = Pt(0)
-                            p.space_before = Pt(0)
-                            
-                            for span in line.get("spans", []):
-                                text = span.get("text", "")
-                                if not text:
+                    for block in page_dict.get("blocks", []):
+                        if block.get("type") == 0:  # Text block
+                            for line in block.get("lines", []):
+                                lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
+                                if lx0 >= lx1 or ly0 >= ly1:
                                     continue
-                                    
-                                run = p.add_run()
-                                run.text = text
                                 
-                                # Font size scaling with clamping to prevent text overflow
-                                font_size = span.get("size", 11)
-                                font_size = max(8.0, min(font_size, 13.0))
-                                run.font.size = int(Pt(font_size) * scale_y)
-                                
-                                # Font family mapping
-                                font_family = span.get("font", "Arial")
-                                run.font.name = map_font_name(font_family)
-                                
-                                # Color mapping
-                                color_val = span.get("color", 0)
-                                if isinstance(color_val, int):
-                                    b = color_val & 255
-                                    g = (color_val >> 8) & 255
-                                    r = (color_val >> 16) & 255
-                                    run.font.color.rgb = RGBColor(r, g, b)
-                                    
-                                # Flags (16 is Bold, 2 is Italic)
-                                flags = span.get("flags", 0)
-                                if flags & 16:
-                                    run.font.bold = True
-                                if flags & 2:
-                                    run.font.italic = True
-                        except Exception as e:
-                            print("Warning rendering line in PPTX:", e)
-                            
-                # Image Block
-                elif block.get("type") == 1:
-                    img_bytes = block.get("image")
-                    if img_bytes:
-                        img_ext = block.get("ext", "png")
-                        tmp_img_path = os.path.join(temp_dir, f"tmp_ppt_img_{page_num}_{int(bx0)}.{img_ext}")
-                        with open(tmp_img_path, "wb") as img_file:
-                            img_file.write(img_bytes)
-                        
-                        left = int(Pt(bx0) * scale_x)
-                        top = int(Pt(by0) * scale_y)
-                        width = int(Pt(bx1 - bx0) * scale_x)
-                        height = int(Pt(by1 - by0) * scale_y)
-                        
-                        try:
-                            # Protect against zero width/height
-                            if width <= 0: width = Pt(100)
-                            if height <= 0: height = Pt(100)
-                            slide.shapes.add_picture(tmp_img_path, left, top, width, height)
-                        except Exception as e:
-                            print(f"Warning: Could not add picture to PPTX: {e}")
-                        finally:
-                            if os.path.exists(tmp_img_path):
-                                os.remove(tmp_img_path)
-                                
+                                left = max(0, min(int(Pt(lx0) * scale_x), prs.slide_width - Pt(10)))
+                                top = max(0, min(int(Pt(ly0) * scale_y), prs.slide_height - Pt(10)))
+                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), prs.slide_width - left)
+                                height = min(int(Pt(ly1 - ly0) * scale_y), prs.slide_height - top)
+                                if width <= Pt(5) or height <= Pt(5):
+                                    continue
+
+                                txBox = slide.shapes.add_textbox(left, top, width, height)
+                                tf = txBox.text_frame
+                                tf.word_wrap = False
+                                tf.clear()
+                                tf.margin_left = Pt(0)
+                                tf.margin_right = Pt(0)
+                                tf.margin_top = Pt(0)
+                                tf.margin_bottom = Pt(0)
+                                p_elem = tf.paragraphs[0]
+
+                                for span in line.get("spans", []):
+                                    t_text = span.get("text", "")
+                                    if not t_text:
+                                        continue
+                                    run = p_elem.add_run()
+                                    run.text = t_text
+                                    f_size = max(8.0, min(span.get("size", 11), 14.0))
+                                    run.font.size = int(Pt(f_size) * scale_y)
+                                    run.font.name = map_font_name(span.get("font", "Arial"))
+                                    run.font.color.rgb = safe_rgb_color(span.get("color", 0))
+                                    flags = span.get("flags", 0)
+                                    if flags & 16: run.font.bold = True
+                                    if flags & 2: run.font.italic = True
+                except Exception as ex_hyb:
+                    print(f"Smart hybrid warning for page {page_num}, using raster image fallback:", ex_hyb)
+                    try:
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
+                        slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                        if os.path.exists(img_path): os.remove(img_path)
+                    except Exception:
+                        pass
+
+            # ---------------------------------------------------------
+            # MODE C: EDITABLE OBJECTS & ITR/FINANCIAL TABLE RECONSTRUCTION
+            # ---------------------------------------------------------
+            else:  # mode == "editable"
+                try:
+                    # 1. Background Images
+                    try:
+                        image_list = page.get_images()
+                        for img_idx, img_info in enumerate(image_list[:10]):
+                            xref = img_info[0]
+                            base_img = doc.extract_image(xref)
+                            if base_img:
+                                img_bytes = base_img["image"]
+                                img_ext = base_img["ext"]
+                                tmp_bg_path = os.path.join(temp_dir, f"tmp_bg_{page_num}_{img_idx}.{img_ext}")
+                                with open(tmp_bg_path, "wb") as f_img:
+                                    f_img.write(img_bytes)
+                                img_rects = page.get_image_rects(xref)
+                                if img_rects:
+                                    rx0, ry0, rx1, ry1 = img_rects[0]
+                                    i_left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(10)))
+                                    i_top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(10)))
+                                    i_width = min(int(Pt(rx1 - rx0) * scale_x), prs.slide_width - i_left)
+                                    i_height = min(int(Pt(ry1 - ry0) * scale_y), prs.slide_height - i_top)
+                                else:
+                                    i_left, i_top = 0, 0
+                                    i_width, i_height = prs.slide_width, prs.slide_height
+                                if i_width > Pt(10) and i_height > Pt(10):
+                                    slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
+                                if os.path.exists(tmp_bg_path):
+                                    os.remove(tmp_bg_path)
+                    except Exception as ex_img:
+                        print("Editable background extraction warning:", ex_img)
+
+                    # 2. Financial / ITR Table Reconstruction with Column & Merged Cell Detection
+                    table_bboxes = []
+                    try:
+                        tabs = page.find_tables()
+                        if tabs and tabs.tables:
+                            for tab in tabs.tables:
+                                tx0, ty0, tx1, ty1 = tab.bbox
+                                table_bboxes.append((tx0, ty0, tx1, ty1))
+                                t_left = max(0, min(int(Pt(tx0) * scale_x), prs.slide_width - Pt(10)))
+                                t_top = max(0, min(int(Pt(ty0) * scale_y), prs.slide_height - Pt(10)))
+                                t_width = min(int(Pt(tx1 - tx0) * scale_x), prs.slide_width - t_left)
+                                t_height = min(int(Pt(ty1 - ty0) * scale_y), prs.slide_height - t_top)
+
+                                if t_width > Pt(20) and t_height > Pt(20) and tab.row_count > 0 and tab.col_count > 0:
+                                    t_shape = slide.shapes.add_table(tab.row_count, tab.col_count, t_left, t_top, t_width, t_height)
+                                    table_obj = t_shape.table
+                                    grid = tab.extract()
+
+                                    # Adjust individual column widths if tab.cols coordinates are available
+                                    try:
+                                        if hasattr(tab, "cols") and tab.cols:
+                                            col_widths = []
+                                            for c_idx in range(len(tab.cols) - 1):
+                                                c_w = (tab.cols[c_idx + 1] - tab.cols[c_idx]) * scale_x
+                                                col_widths.append(int(Pt(c_w)))
+                                            for c_idx, cw in enumerate(col_widths[:tab.col_count]):
+                                                table_obj.columns[c_idx].width = max(Pt(15), cw)
+                                    except Exception:
+                                        pass
+
+                                    for r_idx in range(tab.row_count):
+                                        for c_idx in range(tab.col_count):
+                                            c_cell = table_obj.cell(r_idx, c_idx)
+                                            val_str = ""
+                                            if r_idx < len(grid) and c_idx < len(grid[r_idx]):
+                                                val_str = str(grid[r_idx][c_idx] or "").strip()
+
+                                            c_cell.text = val_str
+                                            c_cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                                            c_cell.margin_left = Pt(2)
+                                            c_cell.margin_right = Pt(2)
+                                            c_cell.margin_top = Pt(1)
+                                            c_cell.margin_bottom = Pt(1)
+                                            set_pptx_cell_border(c_cell, color_hex="808080", width_str="12700")
+
+                                            if c_cell.text_frame and c_cell.text_frame.paragraphs:
+                                                p_elem = c_cell.text_frame.paragraphs[0]
+                                                p_elem.alignment = PP_ALIGN.LEFT
+                                                if p_elem.runs:
+                                                    for run in p_elem.runs:
+                                                        run.font.name = "Arial"
+                                                        run.font.size = Pt(9.0)
+                                                        run.font.color.rgb = RGBColor(0, 0, 0)
+                    except Exception as ex_tab:
+                        print("Editable table extraction warning:", ex_tab)
+
+                    # 3. Vector Shape / Line Borders
+                    try:
+                        drawings = page.get_drawings()
+                    except Exception:
+                        drawings = []
+
+                    if len(drawings) < 120:
+                        for d in drawings:
+                            rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                            if not (-5000 <= rx0 <= 5000 and -5000 <= ry0 <= 5000 and -5000 <= rx1 <= 5000 and -5000 <= ry1 <= 5000):
+                                continue
+                            dw, dh = rx1 - rx0, ry1 - ry0
+                            if dw > 0.5 or dh > 0.5:
+                                left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(5)))
+                                top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(5)))
+                                width = min(int(Pt(dw) * scale_x), prs.slide_width - left)
+                                height = min(int(Pt(dh) * scale_y), prs.slide_height - top)
+                                if width <= 0 or height <= 0: continue
+
+                                try:
+                                    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                                    if d.get("fill"):
+                                        fr, fg, fb = d["fill"]
+                                        if not (fr > 0.92 and fg > 0.92 and fb > 0.92):
+                                            shape.fill.solid()
+                                            shape.fill.fore_color.rgb = safe_rgb_color(d["fill"])
+                                        else: shape.fill.background()
+                                    else: shape.fill.background()
+
+                                    stroke_width = d.get("width", 0)
+                                    if d.get("color") and (stroke_width > 0 or dw <= 1.5 or dh <= 1.5):
+                                        shape.line.color.rgb = safe_rgb_color(d.get("color", (0, 0, 0)))
+                                        shape.line.width = max(Pt(0.75), int(Pt(stroke_width) * scale_y))
+                                    else: shape.line.fill.background()
+                                except Exception:
+                                    pass
+
+                    # 4. Text Boxes
+                    page_dict = page.get_text("dict")
+                    for block in page_dict.get("blocks", []):
+                        if block.get("type") == 0:
+                            for line in block.get("lines", []):
+                                lx0, ly0, lx1, ly1 = line.get("bbox", (0, 0, 0, 0))
+                                if lx0 >= lx1 or ly0 >= ly1: continue
+
+                                in_table = False
+                                for tx0, ty0, tx1, ty1 in table_bboxes:
+                                    if tx0 - 3 <= lx0 <= tx1 + 3 and ty0 - 3 <= ly0 <= ty1 + 3:
+                                        in_table = True
+                                        break
+                                if in_table: continue
+
+                                left = max(0, min(int(Pt(lx0) * scale_x), prs.slide_width - Pt(10)))
+                                top = max(0, min(int(Pt(ly0) * scale_y), prs.slide_height - Pt(10)))
+                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), prs.slide_width - left)
+                                height = min(int(Pt(ly1 - ly0) * scale_y), prs.slide_height - top)
+                                if width <= Pt(5) or height <= Pt(5): continue
+
+                                txBox = slide.shapes.add_textbox(left, top, width, height)
+                                tf = txBox.text_frame
+                                tf.word_wrap = False
+                                tf.clear()
+                                tf.margin_left = Pt(0)
+                                tf.margin_right = Pt(0)
+                                tf.margin_top = Pt(0)
+                                tf.margin_bottom = Pt(0)
+                                p_elem = tf.paragraphs[0]
+
+                                for span in line.get("spans", []):
+                                    t_text = span.get("text", "")
+                                    if not t_text: continue
+                                    run = p_elem.add_run()
+                                    run.text = t_text
+                                    f_size = max(8.0, min(span.get("size", 11), 14.0))
+                                    run.font.size = int(Pt(f_size) * scale_y)
+                                    run.font.name = map_font_name(span.get("font", "Arial"))
+                                    run.font.color.rgb = safe_rgb_color(span.get("color", 0))
+                                    flags = span.get("flags", 0)
+                                    if flags & 16: run.font.bold = True
+                                    if flags & 2: run.font.italic = True
+                except Exception as ex_edt:
+                    print(f"Editable mode exception for page {page_num}, falling back to high-res image:", ex_edt)
+                    try:
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
+                        slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                        if os.path.exists(img_path): os.remove(img_path)
+                    except Exception:
+                        pass
+
         doc.close()
-        
-        pptx_path = os.path.join(temp_dir, f"presentation_{file.filename}.pptx")
+
+        # Output Slide Count Validation
+        assert len(prs.slides) == len(pages_to_process), f"Slide count mismatch: expected {len(pages_to_process)}, got {len(prs.slides)}"
+
+        pptx_filename = f"Converted_{os.path.splitext(file.filename)[0]}.pptx"
+        pptx_path = os.path.join(temp_dir, pptx_filename)
         prs.save(pptx_path)
-        
+
         return FileResponse(
             pptx_path,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            filename=f"Presentation_{file.filename}.pptx"
+            filename=pptx_filename,
+            headers={"Content-Disposition": f"attachment; filename={pptx_filename}"}
         )
+
+    except HTTPException:
+        raise
     except Exception as e:
         print("PDF to PPT Error:", e)
-        raise HTTPException(status_code=500, detail=f"Failed to convert PDF to PPT: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to convert PDF to PPT: {str(e)}")
 
 # ---------------------------------------------------------------------
 # 📈 PDF to EXCEL (.xlsx)
