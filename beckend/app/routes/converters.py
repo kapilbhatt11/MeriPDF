@@ -1002,9 +1002,10 @@ async def pdf_to_ppt(
             # ---------------------------------------------------------
             else:  # mode == "editable"
                 try:
-                    # 1. Background Images
+                    # 1. Embedded Images (Extract small images/logos, skip full-page background canvas images)
                     try:
                         image_list = page.get_images()
+                        page_area = (page.rect.width * page.rect.height) or 1.0
                         for img_idx, img_info in enumerate(image_list[:10]):
                             xref = img_info[0]
                             base_img = doc.extract_image(xref)
@@ -1017,15 +1018,19 @@ async def pdf_to_ppt(
                                 img_rects = page.get_image_rects(xref)
                                 if img_rects:
                                     rx0, ry0, rx1, ry1 = img_rects[0]
+                                    img_area = (rx1 - rx0) * (ry1 - ry0)
+                                    # Skip full-page background canvas images (>75% area) in editable mode
+                                    if (img_area / page_area) > 0.75:
+                                        if os.path.exists(tmp_bg_path):
+                                            os.remove(tmp_bg_path)
+                                        continue
+
                                     i_left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(10)))
                                     i_top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(10)))
                                     i_width = min(int(Pt(rx1 - rx0) * scale_x), s_width - i_left)
                                     i_height = min(int(Pt(ry1 - ry0) * scale_y), s_height - i_top)
-                                else:
-                                    i_left, i_top = 0, 0
-                                    i_width, i_height = s_width, s_height
-                                if i_width > Pt(10) and i_height > Pt(10):
-                                    slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
+                                    if i_width > Pt(10) and i_height > Pt(10):
+                                        slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
                                 if os.path.exists(tmp_bg_path):
                                     os.remove(tmp_bg_path)
                     except Exception as ex_img:

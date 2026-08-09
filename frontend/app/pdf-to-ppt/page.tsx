@@ -9,8 +9,8 @@ import { logPDFOperation } from "@/lib/analytics";
 export default function PdfToPowerpoint() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"replica" | "hybrid" | "editable">("replica");
-  const [dpi, setDpi] = useState<number>(300);
+  const [mode, setMode] = useState<"replica" | "hybrid" | "editable">("editable");
+  const [dpi, setDpi] = useState<number>(200);
   const [pageRange, setPageRange] = useState<string>("");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.pptx");
@@ -202,6 +202,19 @@ export default function PdfToPowerpoint() {
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
+                onClick={() => setMode("editable")}
+                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
+                  mode === "editable"
+                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
+                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                <span className="text-xs font-bold block mb-1">✏️ Editable Objects</span>
+                <span className="text-[10px] text-gray-500 leading-tight">Native PPT Tables, Text & Shapes</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setMode("replica")}
                 className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
                   mode === "replica"
@@ -210,7 +223,7 @@ export default function PdfToPowerpoint() {
                 }`}
               >
                 <span className="text-xs font-bold block mb-1">🌟 Visual Replica</span>
-                <span className="text-[10px] text-gray-500 leading-tight">100% Exact Visual Match</span>
+                <span className="text-[10px] text-gray-500 leading-tight">100% Exact Image Slide Layer</span>
               </button>
 
               <button
@@ -223,20 +236,7 @@ export default function PdfToPowerpoint() {
                 }`}
               >
                 <span className="text-xs font-bold block mb-1">⚡ Smart Hybrid</span>
-                <span className="text-[10px] text-gray-500 leading-tight">High-Res Image + Text Overlays</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMode("editable")}
-                className={`p-3 rounded-xl text-left border transition flex flex-col justify-between ${
-                  mode === "editable"
-                    ? "bg-orange-50 border-orange-500 ring-2 ring-orange-500/20 text-orange-950 font-semibold"
-                    : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span className="text-xs font-bold block mb-1">✏️ Editable Objects</span>
-                <span className="text-[10px] text-gray-500 leading-tight">Reconstruct PPT Tables & Shapes</span>
+                <span className="text-[10px] text-gray-500 leading-tight">HD Background + Selectable Text</span>
               </button>
             </div>
           </div>
