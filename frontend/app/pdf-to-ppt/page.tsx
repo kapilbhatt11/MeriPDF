@@ -315,27 +315,105 @@ export default function PdfToPowerpoint() {
         </div>
       </div>
 
-      {/* ❓ How to Use Modal */}
+      {/* ❓ Comprehensive How to Use Modal */}
       {showHelp && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50 p-6" onClick={() => setShowHelp(false)}>
-          <div className="bg-white p-6 rounded-2xl shadow-2xl text-left w-full max-w-lg relative z-60 border border-gray-100" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1 transition"><X size={20} /></button>
-            <h2 className="text-xl font-bold mb-4 text-gray-800 flex items-center gap-2"><HelpCircle className="text-orange-500" /> How to use PDF to PPT</h2>
-            <div className="space-y-3 text-gray-600 text-xs">
-              <div className="bg-orange-50 border border-orange-100 p-3 rounded-xl flex items-start gap-3">
-                <span className="text-orange-600 font-bold text-sm bg-orange-200/60 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0">1</span>
-                <p><strong>Upload:</strong> Select any PDF file (including scanned, financial, ITR, or accounting documents).</p>
-              </div>
-              <div className="bg-orange-50 border border-orange-100 p-3 rounded-xl flex items-start gap-3">
-                <span className="text-orange-600 font-bold text-sm bg-orange-200/60 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0">2</span>
-                <p><strong>Select Mode:</strong> Choose <strong>Visual Replica</strong> for 100% exact visual match (ILovePDF parity) or <strong>Editable Objects</strong> to reconstruct PPT tables.</p>
-              </div>
-              <div className="bg-orange-50 border border-orange-100 p-3 rounded-xl flex items-start gap-3">
-                <span className="text-orange-600 font-bold text-sm bg-orange-200/60 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0">3</span>
-                <p><strong>Convert & Download:</strong> Click Convert to generate and download your high-fidelity presentation.</p>
+        <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50 p-4 sm:p-6" onClick={() => setShowHelp(false)}>
+          <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-2xl text-left w-full max-w-2xl relative z-60 border border-gray-100 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition">
+              <X size={20} />
+            </button>
+            
+            <h2 className="text-2xl font-bold mb-5 text-gray-800 flex items-center gap-2.5 border-b pb-3">
+              <HelpCircle className="text-orange-600 w-7 h-7" /> How to Use PDF to PowerPoint Converter
+            </h2>
+
+            {/* Quick Steps */}
+            <div className="space-y-3 mb-6">
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Quick Conversion Steps</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-orange-50/70 border border-orange-100 p-3 rounded-xl flex flex-col items-start gap-1">
+                  <span className="text-orange-600 font-bold text-xs bg-orange-200/80 px-2 py-0.5 rounded-md">Step 1</span>
+                  <p className="text-xs text-gray-700 font-semibold mt-1">Upload PDF</p>
+                  <p className="text-[11px] text-gray-500">Select any digital, scanned, financial, or ITR PDF file.</p>
+                </div>
+                <div className="bg-orange-50/70 border border-orange-100 p-3 rounded-xl flex flex-col items-start gap-1">
+                  <span className="text-orange-600 font-bold text-xs bg-orange-200/80 px-2 py-0.5 rounded-md">Step 2</span>
+                  <p className="text-xs text-gray-700 font-semibold mt-1">Configure Mode & DPI</p>
+                  <p className="text-[11px] text-gray-500">Choose Visual Replica, Smart Hybrid, or Editable mode.</p>
+                </div>
+                <div className="bg-orange-50/70 border border-orange-100 p-3 rounded-xl flex flex-col items-start gap-1">
+                  <span className="text-orange-600 font-bold text-xs bg-orange-200/80 px-2 py-0.5 rounded-md">Step 3</span>
+                  <p className="text-xs text-gray-700 font-semibold mt-1">Convert & Download</p>
+                  <p className="text-[11px] text-gray-500">Click Convert to download your 1:1 PPT presentation.</p>
+                </div>
               </div>
             </div>
-            <button onClick={() => setShowHelp(false)} className="mt-5 w-full bg-orange-600 text-white font-semibold py-2.5 rounded-xl hover:bg-orange-700 transition text-sm">Got it!</button>
+
+            {/* Conversion Modes Detailed Explanation */}
+            <div className="mb-6 space-y-2">
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Layers size={14} className="text-orange-600" /> Conversion Modes Explained
+              </h3>
+              <div className="space-y-2.5">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                  <div className="font-bold text-gray-800 flex items-center gap-1.5 mb-1">
+                    <span>🌟 Visual Replica (Recommended)</span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-semibold">100% Visual Match</span>
+                  </div>
+                  <p className="text-gray-600 text-[11px] leading-relaxed">
+                    Converts each PDF page into a high-definition 1:1 visual slide layer. <strong>Best for Financial Statements, ITR forms, Accounting Balance Sheets, Hindi/Devanagari text, Stamps, Signatures, and complex merged-cell tables.</strong> Zero layout shift or text wrapping errors.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                  <div className="font-bold text-gray-800 flex items-center gap-1.5 mb-1">
+                    <span>⚡ Smart Hybrid Mode</span>
+                  </div>
+                  <p className="text-gray-600 text-[11px] leading-relaxed">
+                    Combines high-definition visual page background with exact-coordinate selectable text box overlays. Ideal when you want a pixel-perfect document background while still being able to highlight and copy text.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                  <div className="font-bold text-gray-800 flex items-center gap-1.5 mb-1">
+                    <span>✏️ Editable Objects Mode</span>
+                  </div>
+                  <p className="text-gray-600 text-[11px] leading-relaxed">
+                    Reconstructs PDF tables into native PowerPoint editable tables with solid cell borders and converts text blocks into editable text boxes. Ideal for editing numbers and content inside PowerPoint.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* DPI & Page Range Explanation */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              <div className="bg-gray-50 border border-gray-200 p-3.5 rounded-xl text-xs">
+                <h4 className="font-bold text-gray-800 mb-1 flex items-center gap-1">
+                  <Sliders size={13} className="text-orange-600" /> Rendering Quality (DPI)
+                </h4>
+                <ul className="space-y-1 text-[11px] text-gray-600 list-disc list-inside">
+                  <li><strong>150 DPI:</strong> Fast processing & smaller file size.</li>
+                  <li><strong>200 DPI:</strong> Recommended default (High clarity + Speed).</li>
+                  <li><strong>300 - 600 DPI:</strong> Ultra HD archival print clarity.</li>
+                </ul>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 p-3.5 rounded-xl text-xs">
+                <h4 className="font-bold text-gray-800 mb-1 flex items-center gap-1">
+                  <FileIcon size={13} className="text-orange-600" /> Page Range Selection
+                </h4>
+                <p className="text-[11px] text-gray-600 leading-relaxed mb-1">
+                  Specify specific pages to convert instead of the entire document.
+                </p>
+                <p className="text-[10px] text-orange-700 bg-orange-50 p-1.5 rounded border border-orange-200 font-mono">
+                  Example: 1-5, 8, 11-15
+                </p>
+              </div>
+            </div>
+
+            <button onClick={() => setShowHelp(false)} className="w-full bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700 transition text-sm shadow-md">
+              Got it, Close Guide
+            </button>
           </div>
         </div>
       )}
