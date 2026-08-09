@@ -686,15 +686,59 @@ def safe_rgb_color(color_val):
         pass
     return RGBColor(0, 0, 0)
 
-def render_page_as_highres_image(page, temp_dir, page_num, dpi=200):
+def render_page_as_highres_image(page, temp_dir, page_num, dpi=400):
     unique_id = uuid.uuid4().hex[:8]
     img_path = os.path.join(temp_dir, f"page_replica_{page_num}_{dpi}dpi_{unique_id}.png")
     try:
         pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB)
     except Exception:
-        pix = page.get_pixmap(dpi=150)
+        pix = page.get_pixmap(dpi=300)
+    # Rule 3: Save as Lossless PNG
     pix.save(img_path)
     return img_path
+
+def detect_page_dpi(page, requested_dpi=200):
+    """Rule 1: Auto-detect table/form pages and enforce minimum 400 DPI."""
+    try:
+        tabs = page.find_tables()
+        drawings = page.get_drawings()
+        if (tabs and len(tabs.tables) > 0) or (drawings and len(drawings) > 10):
+            return max(requested_dpi, 400)
+    except Exception:
+        pass
+    return max(requested_dpi, 300)
+
+def overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height):
+    """Rule 4: Additive Vector Grid Overlay for crisp hairline borders at any zoom level."""
+    from pptx.enum.shapes import MSO_SHAPE
+    try:
+        drawings = page.get_drawings()
+        if not drawings or len(drawings) > 400:
+            return
+        grid_count = 0
+        for d in drawings:
+            rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+            dw, dh = rx1 - rx0, ry1 - ry0
+            # Identify thin straight horizontal or vertical vector line strokes (table/form gridlines)
+            if (dw >= 3.0 and dh <= 2.5) or (dh >= 3.0 and dw <= 2.5):
+                left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(2)))
+                top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(2)))
+                width = min(int(Pt(max(dw, 1.0)) * scale_x), s_width - left)
+                height = min(int(Pt(max(dh, 1.0)) * scale_y), s_height - top)
+                if width > 0 and height > 0:
+                    try:
+                        line_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                        line_shape.fill.solid()
+                        stroke_color = d.get("color") or d.get("fill") or (0.3, 0.3, 0.3)
+                        line_shape.fill.fore_color.rgb = safe_rgb_color(stroke_color)
+                        line_shape.line.fill.background()
+                        grid_count += 1
+                    except Exception:
+                        pass
+        if grid_count > 0:
+            print(f"[QA Check] Page: Overlaid {grid_count} vector gridlines for hairline border survivability.")
+    except Exception as ex_grid:
+        print("Vector gridline overlay warning:", ex_grid)
 
 # ---------------------------------------------------------------------
 # 📊 PDF to POWERPOINT (.pptx) — UNIVERSAL PIXEL-PRESERVING ENGINE
@@ -757,12 +801,11 @@ async def pdf_to_ppt(
         if len(doc) == 0:
             raise HTTPException(status_code=400, detail="The provided PDF document is empty.")
 
-        # Sanitize DPI (150, 200, 300, 400)
+        # Sanitize requested DPI
         try:
             dpi_val = int(dpi)
         except (ValueError, TypeError):
             dpi_val = 200
-        dpi_val = max(150, min(dpi_val, 400))
 
         pages_to_process = parse_page_range(page_range, len(doc))
         if not pages_to_process:
@@ -790,20 +833,25 @@ async def pdf_to_ppt(
             scale_x = s_width / p_width if p_width else 1.0
             scale_y = s_height / p_height if p_height else 1.0
 
+            # Rule 1: Page-Type Detection for 400 DPI Minimum on Table/Form pages
+            page_target_dpi = detect_page_dpi(page, requested_dpi=dpi_val)
+
             # ---------------------------------------------------------
             # MODE A: VISUAL REPLICA / PIXEL-PERFECT (DEFAULT & FALLBACK)
             # ---------------------------------------------------------
             if mode_str == "replica":
                 try:
-                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
+                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=page_target_dpi)
                     slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                     if os.path.exists(img_path):
                         os.remove(img_path)
+                    
+                    # Rule 4: Additive Vector Grid Overlay
+                    overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height)
                 except Exception as ex_rep:
                     print(f"Visual replica failed for page {page_num}:", ex_rep)
-                    # Retry with lower DPI fallback
                     try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=150)
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=200)
                         slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                         if os.path.exists(img_path):
                             os.remove(img_path)
@@ -815,9 +863,14 @@ async def pdf_to_ppt(
             # ---------------------------------------------------------
             elif mode_str == "hybrid":
                 try:
-                    # 1. Place High-Res Page Image as Background Layer
-                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
+                    # 1. Place High-Res Page Image as Background Layer (400 DPI min for table/form)
+                    img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=page_target_dpi)
                     slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
+                    if os.path.exists(img_path):
+                        os.remove(img_path)
+
+                    # Rule 4: Additive Vector Grid Overlay
+                    overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height)
                     if os.path.exists(img_path):
                         os.remove(img_path)
 
