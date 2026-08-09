@@ -281,7 +281,7 @@ export default function PdfToPowerpoint() {
               value={pageRange}
               onChange={(e) => setPageRange(e.target.value)}
               placeholder="e.g. 1-5, 8, 11-15 (Leave blank for all pages)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-xs"
+              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 text-xs text-gray-900 font-bold placeholder:text-gray-400 placeholder:font-normal bg-white shadow-sm transition"
             />
             <p className="text-[10px] text-gray-400 mt-1">
               Specify ranges if you only need specific pages of large PDFs.

@@ -2,6 +2,7 @@ from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse
 import tempfile
 import os
+import uuid
 import asyncio
 from PIL import Image
 try:
