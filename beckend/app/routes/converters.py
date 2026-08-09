@@ -709,34 +709,109 @@ def detect_page_dpi(page, requested_dpi=200):
     return max(requested_dpi, 300)
 
 def overlay_vector_gridlines(slide, page, scale_x, scale_y, s_width, s_height):
-    """Rule 4: Additive Vector Grid Overlay for crisp hairline borders at any zoom level."""
+    """
+    Extracts all thin vertical and horizontal lines (from drawing path items & rects)
+    and draws them as explicit, sharp PowerPoint line shapes with exact colors.
+    Enforces a 1.2pt minimum stroke floor so hairline borders remain crisp at any zoom level.
+    """
     from pptx.enum.shapes import MSO_SHAPE
     try:
         drawings = page.get_drawings()
-        if not drawings or len(drawings) > 400:
+        if not drawings:
             return
+        
         grid_count = 0
         for d in drawings:
-            rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
-            dw, dh = rx1 - rx0, ry1 - ry0
-            # Identify thin straight horizontal or vertical vector line strokes (table/form gridlines)
-            if (dw >= 3.0 and dh <= 2.5) or (dh >= 3.0 and dw <= 2.5):
-                left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(2)))
-                top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(2)))
-                width = min(int(Pt(max(dw, 1.0)) * scale_x), s_width - left)
-                height = min(int(Pt(max(dh, 1.0)) * scale_y), s_height - top)
-                if width > 0 and height > 0:
-                    try:
-                        line_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
-                        line_shape.fill.solid()
-                        stroke_color = d.get("color") or d.get("fill") or (0.3, 0.3, 0.3)
-                        line_shape.fill.fore_color.rgb = safe_rgb_color(stroke_color)
-                        line_shape.line.fill.background()
-                        grid_count += 1
-                    except Exception:
-                        pass
+            stroke_color = d.get("color") or d.get("fill") or (0.2, 0.2, 0.2)
+            rgb_color = safe_rgb_color(stroke_color)
+            line_w = d.get("width", 1.0)
+            
+            items = d.get("items", [])
+            for item in items:
+                cmd = item[0]
+                # 1. Line Command ('l', p1, p2)
+                if cmd == "l":
+                    p1, p2 = item[1], item[2]
+                    dx = abs(p1.x - p2.x)
+                    dy = abs(p1.y - p2.y)
+                    
+                    # Horizontal Line
+                    if dy <= 3.0 and dx >= 2.0:
+                        x0, x1 = min(p1.x, p2.x), max(p1.x, p2.x)
+                        y_pos = (p1.y + p2.y) / 2.0
+                        left = max(0, min(int(Pt(x0) * scale_x), s_width - Pt(2)))
+                        top = max(0, min(int(Pt(y_pos - 0.6) * scale_y), s_height - Pt(2)))
+                        width = min(int(Pt(max(x1 - x0, 1.0)) * scale_x), s_width - left)
+                        height = max(Pt(1.2), int(Pt(max(line_w, 1.2)) * scale_y))
+                        if width > 0 and height > 0:
+                            try:
+                                shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                                shape.fill.solid()
+                                shape.fill.fore_color.rgb = rgb_color
+                                shape.line.fill.background()
+                                grid_count += 1
+                            except Exception:
+                                pass
+                            
+                    # Vertical Line
+                    elif dx <= 3.0 and dy >= 2.0:
+                        y0, y1 = min(p1.y, p2.y), max(p1.y, p2.y)
+                        x_pos = (p1.x + p2.x) / 2.0
+                        left = max(0, min(int(Pt(x_pos - 0.6) * scale_x), s_width - Pt(2)))
+                        top = max(0, min(int(Pt(y0) * scale_y), s_height - Pt(2)))
+                        width = max(Pt(1.2), int(Pt(max(line_w, 1.2)) * scale_x))
+                        height = min(int(Pt(max(y1 - y0, 1.0)) * scale_y), s_height - top)
+                        if width > 0 and height > 0:
+                            try:
+                                shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                                shape.fill.solid()
+                                shape.fill.fore_color.rgb = rgb_color
+                                shape.line.fill.background()
+                                grid_count += 1
+                            except Exception:
+                                pass
+
+                # 2. Rectangle Command ('re', rect)
+                elif cmd == "re":
+                    r = item[1]
+                    rx0, ry0, rx1, ry1 = r.x0, r.y0, r.x1, r.y1
+                    dw, dh = rx1 - rx0, ry1 - ry0
+                    if (dw >= 2.0 and dh <= 3.0) or (dh >= 2.0 and dw <= 3.0):
+                        left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(2)))
+                        top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(2)))
+                        width = max(Pt(1.2), int(Pt(dw) * scale_x)) if dw <= 3.0 else min(int(Pt(dw) * scale_x), s_width - left)
+                        height = max(Pt(1.2), int(Pt(dh) * scale_y)) if dh <= 3.0 else min(int(Pt(dh) * scale_y), s_height - top)
+                        if width > 0 and height > 0:
+                            try:
+                                shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                                shape.fill.solid()
+                                shape.fill.fore_color.rgb = rgb_color
+                                shape.line.fill.background()
+                                grid_count += 1
+                            except Exception:
+                                pass
+
+            # 3. Fallback to bounding rect if items empty
+            if not items:
+                rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                dw, dh = rx1 - rx0, ry1 - ry0
+                if (dw >= 2.0 and dh <= 3.0) or (dh >= 2.0 and dw <= 3.0):
+                    left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(2)))
+                    top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(2)))
+                    width = max(Pt(1.2), int(Pt(dw) * scale_x)) if dw <= 3.0 else min(int(Pt(dw) * scale_x), s_width - left)
+                    height = max(Pt(1.2), int(Pt(dh) * scale_y)) if dh <= 3.0 else min(int(Pt(dh) * scale_y), s_height - top)
+                    if width > 0 and height > 0:
+                        try:
+                            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+                            shape.fill.solid()
+                            shape.fill.fore_color.rgb = rgb_color
+                            shape.line.fill.background()
+                            grid_count += 1
+                        except Exception:
+                            pass
+
         if grid_count > 0:
-            print(f"[QA Check] Page: Overlaid {grid_count} vector gridlines for hairline border survivability.")
+            print(f"[QA Check] Successfully extracted & drew {grid_count} thin vertical/horizontal vector lines.")
     except Exception as ex_grid:
         print("Vector gridline overlay warning:", ex_grid)
 
