@@ -685,9 +685,13 @@ def safe_rgb_color(color_val):
         pass
     return RGBColor(0, 0, 0)
 
-def render_page_as_highres_image(page, temp_dir, page_num, dpi=300):
-    pix = page.get_pixmap(dpi=dpi)
-    img_path = os.path.join(temp_dir, f"page_replica_{page_num}_{dpi}dpi.png")
+def render_page_as_highres_image(page, temp_dir, page_num, dpi=200):
+    unique_id = uuid.uuid4().hex[:8]
+    img_path = os.path.join(temp_dir, f"page_replica_{page_num}_{dpi}dpi_{unique_id}.png")
+    try:
+        pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB)
+    except Exception:
+        pix = page.get_pixmap(dpi=150)
     pix.save(img_path)
     return img_path
 
@@ -698,7 +702,7 @@ def render_page_as_highres_image(page, temp_dir, page_num, dpi=300):
 async def pdf_to_ppt(
     file: UploadFile = File(...),
     mode: str = Form("replica"),
-    dpi: int = Form(300),
+    dpi: int = Form(200),
     page_range: str = Form(None)
 ):
     from pptx.enum.shapes import MSO_SHAPE
@@ -744,12 +748,12 @@ async def pdf_to_ppt(
         if len(doc) == 0:
             raise HTTPException(status_code=400, detail="The provided PDF document is empty.")
 
-        # Sanitize DPI (150, 200, 300, 400, 600)
+        # Sanitize DPI (150, 200, 300, 400)
         try:
             dpi_val = int(dpi)
         except (ValueError, TypeError):
-            dpi_val = 300
-        dpi_val = max(150, min(dpi_val, 600))
+            dpi_val = 200
+        dpi_val = max(150, min(dpi_val, 400))
 
         pages_to_process = parse_page_range(page_range, len(doc))
         if not pages_to_process:
@@ -771,8 +775,11 @@ async def pdf_to_ppt(
             
             p_width = Pt(page.rect.width)
             p_height = Pt(page.rect.height)
-            scale_x = prs.slide_width / p_width if p_width else 1.0
-            scale_y = prs.slide_height / p_height if p_height else 1.0
+            s_width = int(p_width) if p_width else prs.slide_width
+            s_height = int(p_height) if p_height else prs.slide_height
+
+            scale_x = s_width / p_width if p_width else 1.0
+            scale_y = s_height / p_height if p_height else 1.0
 
             # ---------------------------------------------------------
             # MODE A: VISUAL REPLICA / PIXEL-PERFECT (DEFAULT & FALLBACK)
@@ -780,11 +787,19 @@ async def pdf_to_ppt(
             if mode_str == "replica":
                 try:
                     img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
-                    slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                    slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                     if os.path.exists(img_path):
                         os.remove(img_path)
                 except Exception as ex_rep:
                     print(f"Visual replica failed for page {page_num}:", ex_rep)
+                    # Retry with lower DPI fallback
+                    try:
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=150)
+                        slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
+                        if os.path.exists(img_path):
+                            os.remove(img_path)
+                    except Exception as ex_retry:
+                        print(f"Retry visual replica failed for page {page_num}:", ex_retry)
 
             # ---------------------------------------------------------
             # MODE B: SMART HYBRID (Visual Background + Text Overlays)
@@ -793,7 +808,7 @@ async def pdf_to_ppt(
                 try:
                     # 1. Place High-Res Page Image as Background Layer
                     img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
-                    slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                    slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                     if os.path.exists(img_path):
                         os.remove(img_path)
 
@@ -806,10 +821,10 @@ async def pdf_to_ppt(
                                 if lx0 >= lx1 or ly0 >= ly1:
                                     continue
                                 
-                                left = max(0, min(int(Pt(lx0) * scale_x), prs.slide_width - Pt(10)))
-                                top = max(0, min(int(Pt(ly0) * scale_y), prs.slide_height - Pt(10)))
-                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), prs.slide_width - left)
-                                height = min(int(Pt(ly1 - ly0) * scale_y), prs.slide_height - top)
+                                left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(10)))
+                                top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(10)))
+                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), s_width - left)
+                                height = min(int(Pt(ly1 - ly0) * scale_y), s_height - top)
                                 if width <= Pt(5) or height <= Pt(5):
                                     continue
 
@@ -839,8 +854,8 @@ async def pdf_to_ppt(
                 except Exception as ex_hyb:
                     print(f"Smart hybrid warning for page {page_num}, using raster image fallback:", ex_hyb)
                     try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
-                        slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=150)
+                        slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                         if os.path.exists(img_path): os.remove(img_path)
                     except Exception:
                         pass
@@ -859,19 +874,19 @@ async def pdf_to_ppt(
                             if base_img:
                                 img_bytes = base_img["image"]
                                 img_ext = base_img["ext"]
-                                tmp_bg_path = os.path.join(temp_dir, f"tmp_bg_{page_num}_{img_idx}.{img_ext}")
+                                tmp_bg_path = os.path.join(temp_dir, f"tmp_bg_{page_num}_{img_idx}_{uuid.uuid4().hex[:6]}.{img_ext}")
                                 with open(tmp_bg_path, "wb") as f_img:
                                     f_img.write(img_bytes)
                                 img_rects = page.get_image_rects(xref)
                                 if img_rects:
                                     rx0, ry0, rx1, ry1 = img_rects[0]
-                                    i_left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(10)))
-                                    i_top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(10)))
-                                    i_width = min(int(Pt(rx1 - rx0) * scale_x), prs.slide_width - i_left)
-                                    i_height = min(int(Pt(ry1 - ry0) * scale_y), prs.slide_height - i_top)
+                                    i_left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(10)))
+                                    i_top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(10)))
+                                    i_width = min(int(Pt(rx1 - rx0) * scale_x), s_width - i_left)
+                                    i_height = min(int(Pt(ry1 - ry0) * scale_y), s_height - i_top)
                                 else:
                                     i_left, i_top = 0, 0
-                                    i_width, i_height = prs.slide_width, prs.slide_height
+                                    i_width, i_height = s_width, s_height
                                 if i_width > Pt(10) and i_height > Pt(10):
                                     slide.shapes.add_picture(tmp_bg_path, i_left, i_top, i_width, i_height)
                                 if os.path.exists(tmp_bg_path):
@@ -887,10 +902,10 @@ async def pdf_to_ppt(
                             for tab in tabs.tables:
                                 tx0, ty0, tx1, ty1 = tab.bbox
                                 table_bboxes.append((tx0, ty0, tx1, ty1))
-                                t_left = max(0, min(int(Pt(tx0) * scale_x), prs.slide_width - Pt(10)))
-                                t_top = max(0, min(int(Pt(ty0) * scale_y), prs.slide_height - Pt(10)))
-                                t_width = min(int(Pt(tx1 - tx0) * scale_x), prs.slide_width - t_left)
-                                t_height = min(int(Pt(ty1 - ty0) * scale_y), prs.slide_height - t_top)
+                                t_left = max(0, min(int(Pt(tx0) * scale_x), s_width - Pt(10)))
+                                t_top = max(0, min(int(Pt(ty0) * scale_y), s_height - Pt(10)))
+                                t_width = min(int(Pt(tx1 - tx0) * scale_x), s_width - t_left)
+                                t_height = min(int(Pt(ty1 - ty0) * scale_y), s_height - t_top)
 
                                 if t_width > Pt(20) and t_height > Pt(20) and tab.row_count > 0 and tab.col_count > 0:
                                     t_shape = slide.shapes.add_table(tab.row_count, tab.col_count, t_left, t_top, t_width, t_height)
@@ -948,10 +963,10 @@ async def pdf_to_ppt(
                                 continue
                             dw, dh = rx1 - rx0, ry1 - ry0
                             if dw > 0.5 or dh > 0.5:
-                                left = max(0, min(int(Pt(rx0) * scale_x), prs.slide_width - Pt(5)))
-                                top = max(0, min(int(Pt(ry0) * scale_y), prs.slide_height - Pt(5)))
-                                width = min(int(Pt(dw) * scale_x), prs.slide_width - left)
-                                height = min(int(Pt(dh) * scale_y), prs.slide_height - top)
+                                left = max(0, min(int(Pt(rx0) * scale_x), s_width - Pt(5)))
+                                top = max(0, min(int(Pt(ry0) * scale_y), s_height - Pt(5)))
+                                width = min(int(Pt(dw) * scale_x), s_width - left)
+                                height = min(int(Pt(dh) * scale_y), s_height - top)
                                 if width <= 0 or height <= 0: continue
 
                                 try:
@@ -987,10 +1002,10 @@ async def pdf_to_ppt(
                                         break
                                 if in_table: continue
 
-                                left = max(0, min(int(Pt(lx0) * scale_x), prs.slide_width - Pt(10)))
-                                top = max(0, min(int(Pt(ly0) * scale_y), prs.slide_height - Pt(10)))
-                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), prs.slide_width - left)
-                                height = min(int(Pt(ly1 - ly0) * scale_y), prs.slide_height - top)
+                                left = max(0, min(int(Pt(lx0) * scale_x), s_width - Pt(10)))
+                                top = max(0, min(int(Pt(ly0) * scale_y), s_height - Pt(10)))
+                                width = min(int(Pt(lx1 - lx0 + 4) * scale_x), s_width - left)
+                                height = min(int(Pt(ly1 - ly0) * scale_y), s_height - top)
                                 if width <= Pt(5) or height <= Pt(5): continue
 
                                 txBox = slide.shapes.add_textbox(left, top, width, height)
@@ -1018,8 +1033,8 @@ async def pdf_to_ppt(
                 except Exception as ex_edt:
                     print(f"Editable mode exception for page {page_num}, falling back to high-res image:", ex_edt)
                     try:
-                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=dpi_val)
-                        slide.shapes.add_picture(img_path, 0, 0, prs.slide_width, prs.slide_height)
+                        img_path = render_page_as_highres_image(page, temp_dir, page_num, dpi=150)
+                        slide.shapes.add_picture(img_path, 0, 0, s_width, s_height)
                         if os.path.exists(img_path): os.remove(img_path)
                     except Exception:
                         pass
@@ -1030,7 +1045,7 @@ async def pdf_to_ppt(
         assert len(prs.slides) == len(pages_to_process), f"Slide count mismatch: expected {len(pages_to_process)}, got {len(prs.slides)}"
 
         pptx_filename = f"Converted_{os.path.splitext(file.filename)[0]}.pptx"
-        pptx_path = os.path.join(temp_dir, pptx_filename)
+        pptx_path = os.path.join(temp_dir, f"pptx_{uuid.uuid4().hex[:8]}.pptx")
         prs.save(pptx_path)
 
         return FileResponse(

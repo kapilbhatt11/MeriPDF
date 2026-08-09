@@ -67,21 +67,34 @@ export default function PdfToPowerpoint() {
       setDownloadName(filename);
       logPDFOperation("PDF to PowerPoint", 1);
     } catch (e: unknown) {
-      if (axios.isAxiosError(e) && e.response?.data instanceof Blob) {
+      if (axios.isAxiosError(e) && e.response?.data) {
         try {
-          const text = await e.response.data.text();
-          const j = JSON.parse(text) as { code?: string; detail?: string };
-          if (j?.code === "LOGIN_REQUIRED") {
-             alert(`${j.detail || "Log in required"}\n\nPlease log in and try again.`);
-             return;
+          let errorText = "";
+          if (e.response.data instanceof Blob) {
+            errorText = await e.response.data.text();
+          } else if (typeof e.response.data === "string") {
+            errorText = e.response.data;
           }
-          if (j?.detail) {
-             alert(j.detail);
-             return;
+
+          if (errorText) {
+            try {
+              const j = JSON.parse(errorText) as { code?: string; detail?: string };
+              if (j?.code === "LOGIN_REQUIRED") {
+                alert(`${j.detail || "Log in required"}\n\nPlease log in and try again.`);
+                return;
+              }
+              if (j?.detail) {
+                alert(`Conversion Error: ${j.detail}`);
+                return;
+              }
+            } catch {
+              alert(`Server Response (${e.response.status}): ${errorText.substring(0, 150)}`);
+              return;
+            }
           }
         } catch {}
       }
-      alert("Conversion failed. Please check your document or try using Visual Replica mode.");
+      alert("Conversion failed. Please try again with Visual Replica mode (200 DPI).");
     } finally {
       setLoading(false);
     }
