@@ -672,7 +672,28 @@ def parse_page_range(range_str: str, max_pages: int) -> list[int]:
 def safe_rgb_color(color_val):
     try:
         if isinstance(color_val, (tuple, list)):
-            if len(color_val) >= 3:
+            if len(color_val) == 1:
+                # Grayscale
+                val = float(color_val[0])
+                val_int = int(val * 255) if val <= 1.0 else int(val)
+                val_int = max(0, min(255, val_int))
+                return RGBColor(val_int, val_int, val_int)
+            elif len(color_val) == 3:
+                # RGB
+                r = int(color_val[0] * 255) if color_val[0] <= 1.0 else int(color_val[0])
+                g = int(color_val[1] * 255) if color_val[1] <= 1.0 else int(color_val[1])
+                b = int(color_val[2] * 255) if color_val[2] <= 1.0 else int(color_val[2])
+                return RGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+            elif len(color_val) == 4:
+                # CMYK
+                c, m, y, k = color_val
+                # PDF CMYK values are typically 0.0 to 1.0
+                r = int(255 * (1.0 - c) * (1.0 - k))
+                g = int(255 * (1.0 - m) * (1.0 - k))
+                b = int(255 * (1.0 - y) * (1.0 - k))
+                return RGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+            elif len(color_val) >= 3:
+                # Fallback for other cases
                 r = int(color_val[0] * 255) if color_val[0] <= 1.0 else int(color_val[0])
                 g = int(color_val[1] * 255) if color_val[1] <= 1.0 else int(color_val[1])
                 b = int(color_val[2] * 255) if color_val[2] <= 1.0 else int(color_val[2])
@@ -1219,8 +1240,8 @@ async def pdf_to_ppt(
                 except Exception:
                     pass
 
-            # 2. Extract Embedded Image Assets (Editable mode only)
-            if mode == "editable" and preserve_images:
+            # 2. Extract Embedded Image Assets (Hybrid and Editable modes)
+            if mode in ["hybrid", "editable"] and preserve_images:
                 try:
                     img_list = page.get_images()
                     total_images = len(img_list)
@@ -1257,8 +1278,8 @@ async def pdf_to_ppt(
                 except Exception:
                     pass
 
-            # 3. Vector Drawings & Background Fills (Editable mode only)
-            if mode == "editable" and preserve_backgrounds:
+            # 3. Vector Drawings & Background Fills (Hybrid and Editable modes)
+            if mode in ["hybrid", "editable"] and preserve_backgrounds:
                 try:
                     drawings = page.get_drawings()
                     total_drawings = len(drawings)
@@ -1285,6 +1306,11 @@ async def pdf_to_ppt(
 
                         has_fill = fill and not (fill[0] > 0.96 and fill[1] > 0.96 and fill[2] > 0.96 and dw/p_width > 0.85 and dh/p_height > 0.85)
                         has_stroke = stroke is not None
+
+                        # Skip thin gridlines in hybrid mode since they are rendered via overlay_vector_gridlines
+                        if mode == "hybrid" and not has_fill:
+                            if dw <= 3.0 or dh <= 3.0:
+                                continue
 
                         if has_fill or has_stroke:
                             v_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
