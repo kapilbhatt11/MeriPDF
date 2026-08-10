@@ -422,34 +422,12 @@ def page_needs_ocr(page) -> bool:
     if not text:
         return True
     
-    # Check if a lot of replacement chars or dots are present
-    special_chars = text.count("┬╖") + text.count(chr(0xfffd)) + text.count("ΓÇó")
+    # 1. Check if total alphanumeric text is extremely sparse
     alnum_chars = sum(1 for c in text if c.isalnum())
-    
     if alnum_chars < 5:
         return True
-        
-    if special_chars > 0.4 * (len(text) + 1):
-        return True
-        
-    # Check for corrupt Unicode characters (outside standard ASCII/Devanagari/common signs)
-    corrupt_count = 0
-    for char in text:
-        o = ord(char)
-        if o <= 127:
-            continue
-        if 0x0900 <= o <= 0x097F:
-            continue
-        if 0x2000 <= o <= 0x206F:
-            continue
-        if 0x20A0 <= o <= 0x20CF:
-            continue
-        corrupt_count += 1
-        
-    if corrupt_count > 5:
-        return True
-        
-    # Check for legacy fonts (e.g. KrutiDev, Devlys, Shusha)
+
+    # 2. Check for legacy fonts (e.g. KrutiDev, Devlys, Shusha, Shivaji, Chanakya) via font names
     try:
         page_dict = page.get_text("dict")
         for block in page_dict.get("blocks", []):
@@ -461,6 +439,35 @@ def page_needs_ocr(page) -> bool:
                             return True
     except Exception:
         pass
+        
+    # 3. Unicode range check for legacy DTP font hijack detection
+    invalid_count = 0
+    total_len = len(text)
+    for char in text:
+        o = ord(char)
+        # Check standard ASCII/Latin/Common Punctuation/Whitespace (space U+0020 to U+007E, newline, tab)
+        if (0x0020 <= o <= 0x007E) or char in "\n\r\t":
+            continue
+        # Check Devanagari block
+        if 0x0900 <= o <= 0x097F:
+            continue
+        # Check common dashes and Devanagari character extensions / rupee symbol / common Devanagari dandas
+        if o in [0x2013, 0x2014, 0x20B9, 0x0964, 0x0965]:
+            continue
+        # Whitelist typical common typographic symbols (bullet point, ellipsis, smart quotes, degree, etc.)
+        if o in [0x2022, 0x2026, 0x201C, 0x201D, 0x2018, 0x2019, 0x00A9, 0x00AE, 0x2122, 0x00B0]:
+            continue
+        # Also allow standard punctuation symbols
+        if chr(o) in "।॥.,;!?@#$%^&*()_+-=[]{}|\\'\":<>`/~'\"":
+            continue
+        
+        # Any other character outside valid bounds is considered invalid/suspicious (KrutiDev mapping noise)
+        invalid_count += 1
+        
+    ratio = invalid_count / total_len if total_len > 0 else 0.0
+    # Over 2% suspicious characters dictates fallback to visual OCR
+    if ratio > 0.02:
+        return True
         
     return False
 
@@ -1254,6 +1261,32 @@ async def pdf_to_ppt(
                                             
                                         cell.vertical_anchor = MSO_ANCHOR.MIDDLE
                                         set_pptx_cell_border(cell, color_hex="666666", width_str="12700", border_sides=border_sides)
+                                        
+                                        # Force transparent background so layered vector drawing fills show under the native table
+                                        try:
+                                            cell.fill.background()
+                                        except Exception:
+                                            pass
+                                            
+                                        # Detect original text color overlapping this cell to preserve contrast (white text, etc.)
+                                        cell_color = RGBColor(0, 0, 0)
+                                        if cell_rect:
+                                            try:
+                                                cx0, cy0, cx1, cy1 = cell_rect
+                                                spans_in_cell = []
+                                                page_dict = page.get_text("dict")
+                                                for b in page_dict.get("blocks", []):
+                                                    if b.get("type") == 0:
+                                                        for l in b.get("lines", []):
+                                                            for sn in l.get("spans", []):
+                                                                sx0, sy0, sx1, sy1 = sn.get("bbox", (0,0,0,0))
+                                                                if cx0 - 3 <= sx0 <= cx1 + 3 and cy0 - 3 <= sy0 <= cy1 + 3:
+                                                                    spans_in_cell.append(sn)
+                                                if spans_in_cell:
+                                                    first_span_color = spans_in_cell[0].get("color", 0)
+                                                    cell_color = safe_rgb_color(first_span_color)
+                                            except Exception:
+                                                pass
 
                                         # Reconstruct runs inside cell split by Devanagari script boundaries (Bug 2)
                                         if cell.text_frame and cell.text_frame.paragraphs:
@@ -1267,7 +1300,7 @@ async def pdf_to_ppt(
                                                 r = p.add_run()
                                                 r.font.name = "Arial"
                                                 r.font.size = Pt(8.5)
-                                                r.font.color.rgb = RGBColor(0, 0, 0)
+                                                r.font.color.rgb = cell_color
                                             else:
                                                 for seg_text, is_deva in segments:
                                                     if not seg_text: continue
@@ -1278,7 +1311,7 @@ async def pdf_to_ppt(
                                                     else:
                                                         r.font.name = "Arial"
                                                     r.font.size = Pt(8.5)
-                                                    r.font.color.rgb = RGBColor(0, 0, 0)
+                                                    r.font.color.rgb = cell_color
                 except Exception:
                     pass
 
