@@ -440,7 +440,7 @@ def page_needs_ocr(page) -> bool:
     except Exception:
         pass
         
-    # 3. Unicode range check for legacy DTP font hijack detection
+    # Unicode range check for legacy DTP font hijack detection
     invalid_count = 0
     total_len = len(text)
     for char in text:
@@ -451,11 +451,14 @@ def page_needs_ocr(page) -> bool:
         # Check Devanagari block
         if 0x0900 <= o <= 0x097F:
             continue
-        # Check common dashes and Devanagari character extensions / rupee symbol / common Devanagari dandas
-        if o in [0x2013, 0x2014, 0x20B9, 0x0964, 0x0965]:
+        # Check Zero-Width formatting marks and LTR/RTL indicators
+        if 0x200B <= o <= 0x200F:
             continue
-        # Whitelist typical common typographic symbols (bullet point, ellipsis, smart quotes, degree, etc.)
-        if o in [0x2022, 0x2026, 0x201C, 0x201D, 0x2018, 0x2019, 0x00A9, 0x00AE, 0x2122, 0x00B0]:
+        # Check common dashes and Devanagari character extensions / rupee symbol / common Devanagari dandas
+        if o in [0x2011, 0x2012, 0x2013, 0x2014, 0x20B9, 0x0964, 0x0965]:
+            continue
+        # Whitelist typical common typographic symbols (bullet point, ellipsis, smart quotes, degree, no-break space, etc.)
+        if o in [0x2022, 0x2026, 0x201C, 0x201D, 0x2018, 0x2019, 0x00A9, 0x00AE, 0x2122, 0x00B0, 0x00A0]:
             continue
         # Also allow standard punctuation symbols
         if chr(o) in "।॥.,;!?@#$%^&*()_+-=[]{}|\\'\":<>`/~'\"":
@@ -465,8 +468,8 @@ def page_needs_ocr(page) -> bool:
         invalid_count += 1
         
     ratio = invalid_count / total_len if total_len > 0 else 0.0
-    # Over 2% suspicious characters dictates fallback to visual OCR
-    if ratio > 0.02:
+    # Over 5% suspicious characters dictates fallback to visual OCR
+    if ratio > 0.05:
         return True
         
     return False
@@ -515,7 +518,7 @@ def get_page_elements(page, force_ocr=False):
     should_ocr = force_ocr or page_needs_ocr(page)
     if should_ocr:
         try:
-            pix = page.get_pixmap(dpi=150)
+            pix = page.get_pixmap(dpi=120)
             img_data = pix.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
             
@@ -626,6 +629,7 @@ def get_page_elements(page, force_ocr=False):
                     
                     # Convert to PyMuPDF dictionary spans format
                     synthetic_spans = []
+                    line_color = None
                     for s in spans:
                         sx0, sy0, sx1, sy1 = s["bbox"]
                         
@@ -640,13 +644,14 @@ def get_page_elements(page, force_ocr=False):
                         stable_sy0 = word_w["bbox"][1]
                         stable_sy1 = word_w["bbox"][3]
                         
-                        color_val = detect_text_color(img, (sx0, stable_sy0, sx1, stable_sy1), page.rect.width, page.rect.height)
+                        if line_color is None:
+                            line_color = detect_text_color(img, (sx0, stable_sy0, sx1, stable_sy1), page.rect.width, page.rect.height)
                         
                         synthetic_spans.append({
                             "text": s["text"],
                             "font": "Arial",
                             "size": font_size,
-                            "color": color_val,
+                            "color": line_color,
                             "flags": 0,
                             "bbox": (sx0, stable_sy0, sx1, stable_sy1)
                         })
