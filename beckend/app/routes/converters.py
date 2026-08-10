@@ -421,6 +421,10 @@ def page_needs_ocr(page) -> bool:
     text = page.get_text("text").strip()
     if not text:
         return True
+        
+    # Check for CID font glyph corruption errors (forces OCR fallback)
+    if "(cid:" in text or "cid:" in text:
+        return True
     
     # 1. Check if total alphanumeric text is extremely sparse
     alnum_chars = sum(1 for c in text if c.isalnum())
@@ -600,10 +604,8 @@ def get_page_elements(page, use_ocr=None):
             img_data = pix.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
             
-            # Preprocessing: convert to grayscale and binarize to remove scan noise and sharpen font edges
+            # Preprocessing: convert to grayscale (preserve anti-aliased glyph bounds for Tesseract)
             img = img.convert('L')
-            threshold = 127
-            img = img.point(lambda p: 255 if p > threshold else 0)
             
             resized_flag = False
             # pix.width/pix.height correspond to the unscaled image (1x width/height)
@@ -691,8 +693,8 @@ def get_page_elements(page, use_ocr=None):
                         for w in words[1:]:
                             wx0, wy0, wx1, wy1 = w["bbox"]
                             # If they are close horizontally, merge them.
-                            # Threshold is 18 points (typical space boundary between columns)
-                            if wx0 - curr_span["bbox"][2] <= 18:
+                            # Threshold is 5.0 points to prevent merging words across columns
+                            if wx0 - curr_span["bbox"][2] <= 5.0:
                                 curr_span["text"] += " " + w["text"]
                                 curr_span["words"].append(w)
                                 curr_span["bbox"][2] = max(curr_span["bbox"][2], wx1)
@@ -1718,6 +1720,13 @@ async def pdf_to_excel(
             
         # Helper to format values (numeric coercion, retaining leading zero IDs)
         def format_cell_value(text: str):
+            if not text:
+                return text
+            import re
+            # Clean CID patterns like (cid:1234)
+            text = re.sub(r"\(cid:\d+\)", "", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            
             clean = text.replace(",", "").strip()
             if not clean:
                 return text
@@ -1805,10 +1814,25 @@ async def pdf_to_excel(
             # Define header/footer safety zones based on page height (top/bottom 8% or 55 pt)
             top_margin = max(55.0, p_h * 0.08)
             bottom_margin = p_h - max(55.0, p_h * 0.08)
-            def is_header_footer(bbox) -> bool:
+            def is_header_footer(bbox, text_val="", font_sz=11.0) -> bool:
                 if not bbox or len(bbox) < 4:
                     return False
-                return bbox[3] <= top_margin or bbox[1] >= bottom_margin
+                if bbox[3] <= top_margin:
+                    text_clean = text_val.strip()
+                    if font_sz >= 10.0 or len(text_clean) > 25:
+                        return False
+                    if any(x in text_clean.lower() for x in ["मण्डल", "भोपाल", "कार्यालय", "परीक्षा", "शाखा", "विभाग"]):
+                        return False
+                    return True
+                if bbox[1] >= bottom_margin:
+                    text_clean = text_val.strip()
+                    if font_sz >= 10.0 or len(text_clean) > 25:
+                        return False
+                    text_lower = text_clean.lower()
+                    if any(x in text_lower for x in ["page", "पृष्ठ", "क्र."]) or text_clean.isdigit():
+                        return True
+                    return False
+                return False
                 
             # Extract tables: Prioritize Layout-Based pdfplumber Detection
             table_list = []
@@ -1866,7 +1890,7 @@ async def pdf_to_excel(
                                 if tx0 - 2 <= sx0 <= tx1 + 2 and ty0 - 2 <= sy0 <= ty1 + 2:
                                     in_table = True
                                     break
-                            if not in_table and not is_header_footer(span.get("bbox", (0,0,0,0))):
+                            if not in_table and not is_header_footer(span.get("bbox", (0,0,0,0)), span.get("text", ""), span.get("size", 11.0)):
                                 free_spans.append(span)
                                 
             # Check continuation of tables
@@ -1905,6 +1929,41 @@ async def pdf_to_excel(
                 except Exception:
                     pass
             
+            # Group free_spans into horizontal lines
+            lines_free = []
+            if free_spans:
+                free_spans.sort(key=lambda s: s["bbox"][1])
+                curr_y = free_spans[0]["bbox"][1]
+                curr_line = [free_spans[0]]
+                for s in free_spans[1:]:
+                    if abs(s["bbox"][1] - curr_y) <= 5:
+                        curr_line.append(s)
+                    else:
+                        lines_free.append(curr_line)
+                        curr_line = [s]
+                        curr_y = s["bbox"][1]
+                if curr_line:
+                    lines_free.append(curr_line)
+
+            # Combine coordinates from all tables and free text lines on this page to build a visual rows layout
+            x_coords_all = set()
+            y_coords_all = set()
+            for tab in table_list:
+                for r in tab.rows:
+                    for cell in r.cells:
+                        if cell:
+                            x_coords_all.add(round(cell[0], 1))
+                            x_coords_all.add(round(cell[2], 1))
+                            y_coords_all.add(round(r.bbox[1], 1))
+                            y_coords_all.add(round(r.bbox[3], 1))
+            for line_objs in lines_free:
+                line_y = round(line_objs[0]["bbox"][1], 1)
+                y_coords_all.add(line_y)
+                
+            page_table_sorted_x = sorted(list(x_coords_all))
+            page_table_sorted_y = sorted(list(y_coords_all))
+            page_base_row = current_row
+
             # Place tables on the worksheet
             for t_idx, tab in enumerate(table_list):
                 tx0, ty0, tx1, ty1 = tab.bbox
@@ -1958,13 +2017,13 @@ async def pdf_to_excel(
                             x0, y0, x1, y1 = cell
                             c_start = find_coord_index(sorted_x, round(x0, 1))
                             c_end = find_coord_index(sorted_x, round(x1, 1)) - 1
-                            r_start = find_coord_index(sorted_y, round(y0, 1))
-                            r_end = find_coord_index(sorted_y, round(y1, 1)) - 1
+                            r_start = find_coord_index(page_table_sorted_y, round(y0, 1))
+                            r_end = find_coord_index(page_table_sorted_y, round(y1, 1)) - 1
                             
                             c_start = max(0, min(c_start, len(sorted_x) - 2))
                             c_end = max(c_start, min(c_end, len(sorted_x) - 2))
-                            r_start = max(0, min(r_start, len(sorted_y) - 2))
-                            r_end = max(r_start, min(r_end, len(sorted_y) - 2))
+                            r_start = max(0, min(r_start, len(page_table_sorted_y) - 2))
+                            r_end = max(r_start, min(r_end, len(page_table_sorted_y) - 2))
                             
                             excel_r_start = current_row + r_start
                             excel_r_end = current_row + r_end
@@ -1980,7 +2039,7 @@ async def pdf_to_excel(
                                             sx0, sy0, sx1, sy1 = span.get("bbox", (0,0,0,0))
                                             cx = (sx0 + sx1) / 2.0
                                             cy = (sy0 + sy1) / 2.0
-                                            if (x0 - 2 <= cx <= x1 + 2) and (y0 - 2 <= cy <= y1 + 2):
+                                            if (x0 - 5 <= cx <= x1 + 5) and (y0 - 5 <= cy <= y1 + 5):
                                                 spans_in_cell.append(span)
                                                 
                             spans_in_cell.sort(key=lambda s: (s["bbox"][1], s["bbox"][0]))
@@ -1993,7 +2052,7 @@ async def pdf_to_excel(
                                 for s in spans_in_cell:
                                     stext = s.get("text", "")
                                     if not stext: continue
-                                    if abs(s["bbox"][1] - curr_sy) > 5:
+                                    if abs(s["bbox"][1] - curr_sy) > 4.0:
                                         if line_text:
                                             chunks.append(" ".join(line_text))
                                         line_text = [stext]
@@ -2034,6 +2093,8 @@ async def pdf_to_excel(
                                     d_w = rx1 - rx0
                                     d_h = ry1 - ry0
                                     if d_w >= 0.8 * p_w and d_h >= 0.8 * p_h:
+                                        continue
+                                    if d_w > 1.25 * cell_w or d_h > 1.25 * (y1 - y0):
                                         continue
                                     ix0 = max(x0, rx0)
                                     iy0 = max(y0, ry0)
@@ -2137,28 +2198,15 @@ async def pdf_to_excel(
                     except Exception:
                         pass
                         
-                current_row += len(tab.rows) + 2
+                # Keep page_base_row instead of incrementing within table loops
+                pass
                 
             # Freeze table top row
-            if current_row > 2:
+            if ws.max_row > 2:
                 ws.freeze_panes = "A2"
                 
             # Place free-text spans (not overlapping tables)
             if free_spans:
-                free_spans.sort(key=lambda s: s["bbox"][1])
-                lines_free = []
-                curr_y = free_spans[0]["bbox"][1]
-                curr_line = [free_spans[0]]
-                for s in free_spans[1:]:
-                    if abs(s["bbox"][1] - curr_y) <= 5:
-                        curr_line.append(s)
-                    else:
-                        lines_free.append(curr_line)
-                        curr_line = [s]
-                        curr_y = s["bbox"][1]
-                if curr_line:
-                    lines_free.append(curr_line)
-                    
                 max_cols = max(8, sum(len(t.rows[0].cells) for t in table_list if t.rows))
                 
                 for line_objs in lines_free:
@@ -2167,9 +2215,12 @@ async def pdf_to_excel(
                     if not line_text:
                         continue
                         
-                    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
-                    free_cell = ws.cell(row=current_row, column=1)
-                    free_cell.value = line_text
+                    line_y = round(line_objs[0]["bbox"][1], 1)
+                    line_row = page_base_row + find_coord_index(page_table_sorted_y, line_y)
+                    
+                    ws.merge_cells(start_row=line_row, start_column=1, end_row=line_row, end_column=max_cols)
+                    free_cell = ws.cell(row=line_row, column=1)
+                    free_cell.value = format_cell_value(line_text)
                     
                     ref_s = line_objs[0]
                     f_name = "Nirmala UI" if contains_deva(line_text) else "Calibri"
@@ -2188,32 +2239,15 @@ async def pdf_to_excel(
                     
                     free_cell.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
                     free_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                    ws.row_dimensions[current_row].height = f_sz + 6
-                    current_row += 1
+                    ws.row_dimensions[line_row].height = f_sz + 6
+
+            # Increment current_row after free spans placement
+            current_row = ws.max_row + 2
 
             # Extract and embed page images/logos
             try:
                 img_list = page.get_images()
-                page_table_sorted_x = []
-                page_table_sorted_y = []
-                
-                # Combine coordinates from all tables on this page to build a visual column model
-                x_coords_all = set()
-                y_coords_all = set()
-                for tab in table_list:
-                    for r in tab.rows:
-                        for cell in r.cells:
-                            if cell:
-                                x_coords_all.add(round(cell[0], 1))
-                                x_coords_all.add(round(cell[2], 1))
-                                y_coords_all.add(round(r.bbox[1], 1))
-                                y_coords_all.add(round(r.bbox[3], 1))
-                page_table_sorted_x = sorted(list(x_coords_all))
-                page_table_sorted_y = sorted(list(y_coords_all))
-                
-                # We place images relative to the first row of tables or current_row base
-                image_base_row = ws.max_row - len(page_table_sorted_y) if page_table_sorted_y else current_row
-                image_base_row = max(1, image_base_row)
+                image_base_row = page_base_row
 
                 for img_info in img_list[:12]:  # Cap to max 12 images per page to prevent bloated sheet
                     xref = img_info[0]
