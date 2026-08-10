@@ -1406,7 +1406,8 @@ async def pdf_to_ppt(
             # 4. Reconstruct Text Blocks (Hybrid and Editable modes)
             if mode in ["hybrid", "editable"]:
                 try:
-                    page_dict = page.get_text("dict")
+                    # Automatically fallback to OCR layout details if legacy fonts or scanned pages are detected
+                    page_dict = await asyncio.to_thread(get_page_elements, page, False)
                     for block in page_dict.get("blocks", []):
                         if block.get("type") == 0:
                             for line in block.get("lines", []):
