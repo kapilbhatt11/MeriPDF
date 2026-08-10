@@ -1582,191 +1582,413 @@ async def pdf_to_ppt(
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-excel")
 async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None)):
+    from bisect import bisect_left
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
     try:
         temp_dir = tempfile.gettempdir()
         pdf_path = os.path.join(temp_dir, f"tmp_excel_{file.filename}")
         
-        with open(pdf_path, "wb") as f:
-            f.write(await file.read())
+        with open(pdf_path, "wb") as f_out:
+            f_out.write(await file.read())
             
         xlsx_path = os.path.join(temp_dir, f"tables_{file.filename}.xlsx")
-        
         doc = fitz.open(pdf_path)
         wb = Workbook()
-        ws_created = False
         
-        # Safeguard processing count for OCR
-        MAX_OCR_PAGES = 8
+        # We will keep track of sheet configurations to support smart continuation sheets
+        active_ws = None
+        last_page_headers = None
+        
+        MAX_OCR_PAGES = 16
         ocr_processed = 0
         pages_to_process = parse_page_range(page_range, len(doc))
+        if not pages_to_process:
+            pages_to_process = list(range(len(doc)))
+            
+        ws_created = False
         
+        # Helper to check if text contains Devanagari characters
+        def contains_deva(s: str) -> bool:
+            return any(0x0900 <= ord(c) <= 0x097F for c in s)
+            
+        # Helper to format values (numeric coercion, retaining leading zero IDs)
+        def format_cell_value(text: str):
+            clean = text.replace(",", "").strip()
+            if not clean:
+                return text
+            # Check integer or decimal format (allow negative)
+            if clean.replace(".", "", 1).isdigit() or (clean.startswith("-") and clean[1:].replace(".", "", 1).isdigit()):
+                if len(clean) > 1 and clean.startswith("0") and not clean.startswith("0."):
+                    return text
+                try:
+                    if "." in clean:
+                        return float(clean)
+                    return int(clean)
+                except ValueError:
+                    return text
+            return text
+
+        # Helper to format borders for all merged cells
+        def style_merged_cells_borders(ws, start_row, start_col, end_row, end_col, b_left, b_right, b_top, b_bottom):
+            for r in range(start_row, end_row + 1):
+                for c in range(start_col, end_col + 1):
+                    cell = ws.cell(row=r, column=c)
+                    s_l = b_left if c == start_col else Side(style=None)
+                    s_r = b_right if c == end_col else Side(style=None)
+                    s_t = b_top if r == start_row else Side(style=None)
+                    s_b = b_bottom if r == end_row else Side(style=None)
+                    cell.border = Border(left=s_l, right=s_r, top=s_t, bottom=s_b)
+
         for page_num in pages_to_process:
             page = doc.load_page(page_num)
+            p_w = page.rect.width
+            p_h = page.rect.height
             
-            needs_ocr = page_needs_ocr(page)
-            if needs_ocr:
-                if ocr_processed >= MAX_OCR_PAGES:
-                    page_dict = page.get_text("dict")
-                else:
-                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
-                    ocr_processed += 1
-            else:
-                page_dict = page.get_text("dict")
-                
-            all_elements = []
-            
-            for block in page_dict.get("blocks", []):
-                if block.get("type") == 0: # text
-                    for line in block.get("lines", []):
-                        for span in line.get("spans", []):
-                            text = span.get("text", "")
-                            # We keep spaces for visual integrity
-                            if not text.strip():
-                                continue
-                                
-                            x0, y0, x1, y1 = span["bbox"]
-                            color_int = span.get("color", 0)
-                            b = color_int & 255
-                            g = (color_int >> 8) & 255
-                            r = (color_int >> 16) & 255
-                            hex_color = f"FF{r:02x}{g:02x}{b:02x}" # openpyxl requires aRGB
-                            
-                            all_elements.append({
-                                "x0": x0, "y0": y0, "x1": x1, "y1": y1,
-                                "text": text,
-                                "size": span.get("size", 11),
-                                "font": span.get("font", "Arial"),
-                                "color": hex_color,
-                                "flags": span.get("flags", 0)
-                            })
-                            
-            if not all_elements:
-                continue
-                
-            # Extract drawings for cell borders and background fills
+            # Read vector drawings for fills/borders
             try:
                 drawings = page.get_drawings()
             except Exception:
                 drawings = []
                 
-            ws_created = True
-            ws = wb.create_sheet(title=f"Page_{page_num+1}"[:31])
-            try:
-                ws.views.sheetView[0].showGridLines = True
-            except Exception:
-                pass
-                
-            # Sort vertically
-            all_elements.sort(key=lambda item: item["y0"])
-            
-            rows = []
-            current_row = []
-            current_y = all_elements[0]["y0"]
-            y_tolerance = 5 
-            
-            for el in all_elements:
-                if abs(el["y0"] - current_y) <= y_tolerance:
-                    current_row.append(el)
-                    current_y = (current_y + el["y0"]) / 2
+            # Perform text validation check to fallback to OCR under legacy hijacked mapping or scan
+            needs_ocr = page_needs_ocr(page)
+            if needs_ocr:
+                if ocr_processed < MAX_OCR_PAGES:
+                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
+                    ocr_processed += 1
                 else:
-                    rows.append(current_row)
-                    current_row = [el]
-                    current_y = el["y0"]
-            if current_row:
-                rows.append(current_row)
+                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=False)
+            else:
+                page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=False)
                 
-            col_width_factor = 40 # 1 excel column ~ 40 points wide layout
+            # Find tables
+            tabs = page.find_tables()
+            table_list = list(tabs.tables) if (tabs and tabs.tables) else []
+            table_bboxes = [t.bbox for t in table_list]
             
-            # Prepare standard cell border
-            thin_border = Border(
-                left=Side(style='thin', color='B0B0B0'),
-                right=Side(style='thin', color='B0B0B0'),
-                top=Side(style='thin', color='B0B0B0'),
-                bottom=Side(style='thin', color='B0B0B0')
-            )
+            # Extract free-text blocks (not overlapping any table)
+            free_spans = []
+            for block in page_dict.get("blocks", []):
+                if block.get("type") == 0:
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            sx0, sy0, sx1, sy1 = span.get("bbox", (0,0,0,0))
+                            in_table = False
+                            for tx0, ty0, tx1, ty1 in table_bboxes:
+                                if tx0 - 2 <= sx0 <= tx1 + 2 and ty0 - 2 <= sy0 <= ty1 + 2:
+                                    in_table = True
+                                    break
+                            if not in_table:
+                                free_spans.append(span)
+                                
+            # Check continuation of tables
+            table_header = None
+            if table_list:
+                first_tab = table_list[0]
+                first_tab_grid = first_tab.extract()
+                if first_tab_grid and len(first_tab_grid) > 0:
+                    table_header = [str(cell or "").strip() for cell in first_tab_grid[0]]
+                    
+            is_continuation = False
+            if active_ws is not None and table_header and last_page_headers:
+                if len(table_header) == len(last_page_headers) and all(h1 == h2 for h1, h2 in zip(table_header, last_page_headers)):
+                    is_continuation = True
+                    
+            if is_continuation and active_ws is not None:
+                ws = active_ws
+                current_row = ws.max_row + 2
+            else:
+                ws = wb.create_sheet(title=f"Page_{page_num+1}"[:31])
+                ws_created = True
+                active_ws = ws
+                last_page_headers = table_header
+                current_row = 1
+                try:
+                    ws.views.sheetView[0].showGridLines = True
+                except Exception:
+                    pass
             
-            for r_idx, row_elements in enumerate(rows):
-                row_elements.sort(key=lambda w: w["x0"])
+            # Place tables on the worksheet
+            for t_idx, tab in enumerate(table_list):
+                tx0, ty0, tx1, ty1 = tab.bbox
                 
-                merged_row = []
-                if row_elements:
-                    current_group = row_elements[0]
-                    x_tolerance = 15
-                    for el in row_elements[1:]:
-                        if el["x0"] - current_group["x1"] <= x_tolerance:
-                            current_group["x1"] = max(current_group["x1"], el["x1"])
-                            current_group["text"] += " " + el["text"].strip()
-                        else:
-                            merged_row.append(current_group)
-                            current_group = el
-                    merged_row.append(current_group)
+                # Deduplicate and sort column boundaries (x coordinates) and row boundaries (y coordinates)
+                x_coords = set()
+                for r in tab.rows:
+                    for cell in r.cells:
+                        if cell:
+                            x_coords.add(round(cell[0], 1))
+                            x_coords.add(round(cell[2], 1))
+                sorted_x = sorted(list(x_coords))
+                merged_x = []
+                for val in sorted_x:
+                    if not merged_x or val - merged_x[-1] > 2.0:
+                        merged_x.append(val)
+                sorted_x = merged_x
                 
-                max_font_size = 11
-                
-                for item in merged_row:
-                    col_idx = int(item["x0"] // col_width_factor) + 1
-                    while ws.cell(row=r_idx+1, column=col_idx).value is not None:
-                        col_idx += 1
-                        
-                    cell = ws.cell(row=r_idx+1, column=col_idx, value=item["text"])
+                if len(sorted_x) < 2:
+                    sorted_x = [tx0 + i * (tx1 - tx0)/max(1, tab.col_count) for i in range(tab.col_count + 1)]
                     
-                    # Check vector drawing background fill at item position
-                    bg_fill_hex = None
-                    for d in drawings:
-                        rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
-                        if rx0 <= item["x0"] <= rx1 and ry0 <= item["y0"] <= ry1 and d.get("fill"):
-                            fr, fg, fb = d["fill"]
-                            bg_fill_hex = f"FF{int(fr*255):02x}{int(fg*255):02x}{int(fb*255):02x}"
-                            break
-                            
-                    if bg_fill_hex and bg_fill_hex.upper() != "FFFFFF":
-                        try:
-                            cell.fill = PatternFill(start_color=bg_fill_hex, end_color=bg_fill_hex, fill_type="solid")
-                        except Exception:
-                            pass
-                            
-                    # Apply cell border for structural tables only on actual data cells
-                    if drawings and item.get("text", "").strip():
-                        cell.border = thin_border
-                        
-                    # Apply Font Styles
-                    is_bold = bool(item["flags"] & 16)
-                    is_italic = bool(item["flags"] & 2)
+                y_coords = set()
+                for r in tab.rows:
+                    y_coords.add(round(r.bbox[1], 1))
+                    y_coords.add(round(r.bbox[3], 1))
+                sorted_y = sorted(list(y_coords))
+                merged_y = []
+                for val in sorted_y:
+                    if not merged_y or val - merged_y[-1] > 2.0:
+                        merged_y.append(val)
+                sorted_y = merged_y
+                
+                if len(sorted_y) < 2:
+                    sorted_y = [ty0 + i * (ty1 - ty0)/max(1, tab.row_count) for i in range(tab.row_count + 1)]
                     
+                # Format column widths
+                for c in range(len(sorted_x) - 1):
+                    col_letter = get_column_letter(c + 1)
+                    col_width_excel = (sorted_x[c+1] - sorted_x[c]) / 7.5
+                    current_w = ws.column_dimensions[col_letter].width or 8
+                    ws.column_dimensions[col_letter].width = max(current_w, max(6.0, min(col_width_excel, 60.0)))
+                    
+                # Store grid merges to process
+                merges_to_apply = []
+                
+                # Style and write cells
+                for r_idx, r in enumerate(tab.rows):
+                    max_font_size = 11
+                    for c_idx, cell in enumerate(r.cells):
+                        if cell:
+                            x0, y0, x1, y1 = cell
+                            c_start = bisect_left(sorted_x, round(x0, 1))
+                            c_end = bisect_left(sorted_x, round(x1, 1)) - 1
+                            r_start = bisect_left(sorted_y, round(y0, 1))
+                            r_end = bisect_left(sorted_y, round(y1, 1)) - 1
+                            
+                            c_start = max(0, min(c_start, len(sorted_x) - 2))
+                            c_end = max(c_start, min(c_end, len(sorted_x) - 2))
+                            r_start = max(0, min(r_start, len(sorted_y) - 2))
+                            r_end = max(r_start, min(r_end, len(sorted_y) - 2))
+                            
+                            excel_r_start = current_row + r_start
+                            excel_r_end = current_row + r_end
+                            excel_c_start = c_start + 1
+                            excel_c_end = c_end + 1
+                            
+                            # Extract text spans within cell rect
+                            spans_in_cell = []
+                            for block in page_dict.get("blocks", []):
+                                if block.get("type") == 0:
+                                    for line in block.get("lines", []):
+                                        for span in line.get("spans", []):
+                                            sx0, sy0, sx1, sy1 = span.get("bbox", (0,0,0,0))
+                                            cx = (sx0 + sx1) / 2.0
+                                            cy = (sy0 + sy1) / 2.0
+                                            if (x0 - 2 <= cx <= x1 + 2) and (y0 - 2 <= cy <= y1 + 2):
+                                                spans_in_cell.append(span)
+                                                
+                            spans_in_cell.sort(key=lambda s: (s["bbox"][1], s["bbox"][0]))
+                            
+                            # Build text value
+                            chunks = []
+                            if spans_in_cell:
+                                curr_sy = spans_in_cell[0]["bbox"][1]
+                                line_text = []
+                                for s in spans_in_cell:
+                                    stext = s.get("text", "")
+                                    if not stext: continue
+                                    if abs(s["bbox"][1] - curr_sy) > 5:
+                                        if line_text:
+                                            chunks.append(" ".join(line_text))
+                                        line_text = [stext]
+                                        curr_sy = s["bbox"][1]
+                                    else:
+                                        line_text.append(stext)
+                                if line_text:
+                                    chunks.append(" ".join(line_text))
+                            cell_text = "\n".join(chunks).strip()
+                            
+                            target_cell = ws.cell(row=excel_r_start, column=excel_c_start)
+                            target_cell.value = format_cell_value(cell_text)
+                            
+                            # Apply Alignment
+                            cell_w = x1 - x0
+                            span_center = (spans_in_cell[0]["bbox"][0] + spans_in_cell[-1]["bbox"][2]) / 2.0 if spans_in_cell else 0
+                            cell_center = (x0 + x1) / 2.0
+                            h_align = "left"
+                            if cell_w > 0 and spans_in_cell:
+                                diff_pct = abs(span_center - cell_center) / cell_w
+                                if diff_pct < 0.08:
+                                    h_align = "center"
+                                elif (x1 - spans_in_cell[-1]["bbox"][2]) / cell_w < 0.12:
+                                    h_align = "right"
+                                    
+                            target_cell.alignment = Alignment(horizontal=h_align, vertical="center", wrap_text=True)
+                            
+                            # Check background fill color
+                            bg_color = None
+                            for d in drawings:
+                                draw_fill = d.get("fill")
+                                if draw_fill:
+                                    rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                                    d_w = rx1 - rx0
+                                    d_h = ry1 - ry0
+                                    if d_w >= 0.8 * p_w and d_h >= 0.8 * p_h:
+                                        continue
+                                    ix0 = max(x0, rx0)
+                                    iy0 = max(y0, ry0)
+                                    ix1 = min(x1, rx1)
+                                    iy1 = min(y1, ry1)
+                                    if ix1 > ix0 and iy1 > iy0:
+                                        if ((ix1 - ix0) * (iy1 - iy0)) / ((x1 - x0) * (y1 - y0)) >= 0.75:
+                                            fr, fg, fb = draw_fill
+                                            if fr >= 0.98 and fg >= 0.98 and fb >= 0.98:
+                                                continue
+                                            bg_color = f"FF{int(fr*255):02x}{int(fg*255):02x}{int(fb*255):02x}"
+                                            break
+                                            
+                            if bg_color and bg_color.upper() != "FFFFFFFF":
+                                target_cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
+                                
+                            # Border stroke mapping
+                            thick_threshold = 2.0
+                            has_l, has_r, has_t, has_b = False, False, False, False
+                            style_l, style_r, style_t, style_b = 'thin', 'thin', 'thin', 'thin'
+                            color_l, color_r, color_t, color_b = 'B0B0B0', 'B0B0B0', 'B0B0B0', 'B0B0B0'
+                            
+                            for d in drawings:
+                                pts = d.get("rect", (0, 0, 0, 0))
+                                stroke_c = d.get("color")
+                                if stroke_c and d.get("type") in ["l", "rect"]:
+                                    hex_c = f"{int(stroke_c[0]*255):02x}{int(stroke_c[1]*255):02x}{int(stroke_c[2]*255):02x}"
+                                    width = d.get("width", 1.0)
+                                    style = 'medium' if width >= thick_threshold else 'thin'
+                                    
+                                    if abs(pts[0] - x0) <= 2 and (y0 - 2 <= pts[1] <= y1 + 2 or y0 - 2 <= pts[3] <= y1 + 2):
+                                        has_l = True; style_l = style; color_l = hex_c
+                                    elif abs(pts[0] - x1) <= 2 and (y0 - 2 <= pts[1] <= y1 + 2 or y0 - 2 <= pts[3] <= y1 + 2):
+                                        has_r = True; style_r = style; color_r = hex_c
+                                    elif abs(pts[1] - y0) <= 2 and (x0 - 2 <= pts[0] <= x1 + 2 or x0 - 2 <= pts[2] <= x1 + 2):
+                                        has_t = True; style_t = style; color_t = hex_c
+                                    elif abs(pts[1] - y1) <= 2 and (x0 - 2 <= pts[0] <= x1 + 2 or x0 - 2 <= pts[2] <= x1 + 2):
+                                        has_b = True; style_b = style; color_b = hex_c
+                                        
+                            b_left = Side(style=style_l, color=color_l) if has_l else Side(style='thin', color='C0C0C0')
+                            b_right = Side(style=style_r, color=color_r) if has_r else Side(style='thin', color='C0C0C0')
+                            b_top = Side(style=style_t, color=color_t) if has_t else Side(style='thin', color='C0C0C0')
+                            b_bottom = Side(style=style_b, color=color_b) if has_b else Side(style='thin', color='C0C0C0')
+                            
+                            target_cell.border = Border(left=b_left, right=b_right, top=b_top, bottom=b_bottom)
+                            
+                            # Merged boundaries styling
+                            if excel_r_end > excel_r_start or excel_c_end > excel_c_start:
+                                merges_to_apply.append((excel_r_start, excel_c_start, excel_r_end, excel_c_end, b_left, b_right, b_top, b_bottom))
+                            
+                            # Text Font Styling
+                            font_n = "Nirmala UI" if contains_deva(cell_text) else "Calibri"
+                            font_sz = 11
+                            font_c = "FF000000"
+                            flags = 0
+                            
+                            if spans_in_cell:
+                                ref_span = spans_in_cell[0]
+                                font_sz = int(ref_span.get("size", 11.0))
+                                flags = ref_span.get("flags", 0)
+                                color_int = ref_span.get("color", 0)
+                                color_r = (color_int >> 16) & 255
+                                color_g = (color_int >> 8) & 255
+                                color_b = color_int & 255
+                                font_c = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
+                                
+                            is_bold = bool(flags & 16)
+                            is_italic = bool(flags & 2)
+                            
+                            if bg_color:
+                                r_val = int(bg_color[2:4], 16)
+                                g_val = int(bg_color[4:6], 16)
+                                b_val = int(bg_color[6:8], 16)
+                                bg_brightness = (r_val * 299 + g_val * 587 + b_val * 114) / 1000
+                                
+                                f_r = int(font_c[2:4], 16)
+                                f_g = int(font_c[4:6], 16)
+                                f_b = int(font_c[6:8], 16)
+                                font_brightness = (f_r * 299 + f_g * 587 + f_b * 114) / 1000
+                                
+                                if bg_brightness < 120 and font_brightness < 150:
+                                    font_c = "FFFFFFFF"
+                                elif bg_brightness > 200 and font_brightness > 200:
+                                    font_c = "FF000000"
+                                    
+                            target_cell.font = Font(name=font_n, size=font_sz, bold=is_bold, italic=is_italic, color=font_c)
+                            max_font_size = max(max_font_size, font_sz)
+                            
+                    ws.row_dimensions[current_row + r_idx].height = max_font_size + 6
+                    
+                # Apply cell merges inside the sheet
+                for m_start_r, m_start_c, m_end_r, m_end_c, b_l, b_r, b_t, b_b in merges_to_apply:
                     try:
-                        cell.font = Font(
-                            name="Calibri",
-                            color=item["color"], 
-                            size=int(item["size"]), 
-                            bold=is_bold, 
-                            italic=is_italic
-                        )
-                        cell.alignment = Alignment(vertical="center", wrap_text=False)
+                        ws.merge_cells(start_row=m_start_r, start_column=m_start_c, end_row=m_end_r, end_column=m_end_c)
+                        style_merged_cells_borders(ws, m_start_r, m_start_c, m_end_r, m_end_c, b_l, b_r, b_t, b_b)
                     except Exception:
                         pass
                         
-                    max_font_size = max(max_font_size, int(item["size"]))
-                    
-                    # Sizing column width dynamically based on text length
-                    col_letter = get_column_letter(col_idx)
-                    current_col_width = ws.column_dimensions[col_letter].width or 8
-                    needed_width = len(item["text"]) * 1.1 + 3
-                    if needed_width > current_col_width:
-                        ws.column_dimensions[col_letter].width = min(needed_width, 60)
+                current_row += len(tab.rows) + 2
                 
-                # Apply row height
-                ws.row_dimensions[r_idx+1].height = max_font_size + 8
+            # Freeze table top row
+            if current_row > 2:
+                ws.freeze_panes = "A2"
+                
+            # Place free-text spans (not overlapping tables)
+            if free_spans:
+                free_spans.sort(key=lambda s: s["bbox"][1])
+                lines_free = []
+                curr_y = free_spans[0]["bbox"][1]
+                curr_line = [free_spans[0]]
+                for s in free_spans[1:]:
+                    if abs(s["bbox"][1] - curr_y) <= 5:
+                        curr_line.append(s)
+                    else:
+                        lines_free.append(curr_line)
+                        curr_line = [s]
+                        curr_y = s["bbox"][1]
+                if curr_line:
+                    lines_free.append(curr_line)
                     
-        if not ws_created:
-            ws = wb.create_sheet(title="Result")
-            ws["A1"] = "No text found in this PDF."
-            
-        if "Sheet" in wb.sheetnames:
-            del wb["Sheet"] 
+                max_cols = max(8, sum(len(t.rows[0].cells) for t in table_list if t.rows))
+                
+                for line_objs in lines_free:
+                    line_objs.sort(key=lambda s: s["bbox"][0])
+                    line_text = " ".join(s.get("text", "").strip() for s in line_objs if s.get("text", "").strip())
+                    if not line_text:
+                        continue
+                        
+                    ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols)
+                    free_cell = ws.cell(row=current_row, column=1)
+                    free_cell.value = line_text
+                    
+                    ref_s = line_objs[0]
+                    f_name = "Nirmala UI" if contains_deva(line_text) else "Calibri"
+                    f_sz = int(ref_s.get("size", 11))
+                    f_flags = ref_s.get("flags", 0)
+                    
+                    color_int = ref_s.get("color", 0)
+                    color_r = (color_int >> 16) & 255
+                    color_g = (color_int >> 8) & 255
+                    color_b = color_int & 255
+                    f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
+                    
+                    free_cell.font = Font(name=f_name, size=f_sz, bold=bool(f_flags & 16), italic=bool(f_flags & 2), color=f_color)
+                    free_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                    ws.row_dimensions[current_row].height = f_sz + 6
+                    current_row += 1
+                    
+        if ws_created and "Sheet" in wb.sheetnames:
+            del wb["Sheet"]
             
         wb.save(xlsx_path)
         doc.close()
-                
+        
         return FileResponse(
             xlsx_path,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
