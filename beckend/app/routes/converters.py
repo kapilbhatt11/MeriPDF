@@ -471,10 +471,17 @@ def page_needs_ocr(page) -> bool:
         # Any other character outside valid bounds is considered invalid/suspicious (KrutiDev mapping noise)
         invalid_count += 1
         
-    ratio = invalid_count / total_len if total_len > 0 else 0.0
-    # Over 30% suspicious characters dictates fallback to visual OCR
-    if ratio > 0.30:
-        return True
+    # Calculate ratio of invalid/suspicious characters
+    has_hindi = any(0x0900 <= ord(c) <= 0x097F for c in text)
+    
+    # Over suspicious count/ratio dictates fallback to visual OCR
+    if has_hindi:
+        # Hindi PDFs should not have garbage characters representing ligatures
+        if invalid_count > 5 or (total_len > 0 and (invalid_count / total_len) > 0.01):
+            return True
+    else:
+        if invalid_count > 15 or (total_len > 0 and (invalid_count / total_len) > 0.15):
+            return True
         
     return False
 
@@ -588,16 +595,19 @@ def get_page_elements(page, use_ocr=None):
     should_ocr = use_ocr
     if should_ocr:
         try:
-            pix = page.get_pixmap(dpi=120)
+            # Render at 200 DPI for high character definition (especially digits, slashes, currency)
+            pix = page.get_pixmap(dpi=200)
             img_data = pix.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
             
-            # Preprocessing to improve OCR accuracy without heavy CPU overhead
+            # Preprocessing: convert to grayscale and binarize to remove scan noise and sharpen font edges
+            img = img.convert('L')
+            threshold = 127
+            img = img.point(lambda p: 255 if p > threshold else 0)
+            
             resized_flag = False
-            if min(img.size) < 400:
-                img = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
-                resized_flag = True
-                
+            # pix.width/pix.height correspond to the unscaled image (1x width/height)
+            
             # Use combined hin+eng OCR engine to recognize both Hindi Devanagari and English numbers/text
             lang = "hin+eng"
                 
@@ -1656,7 +1666,11 @@ async def pdf_to_ppt(
 # 📈 PDF to EXCEL (.xlsx)
 # ---------------------------------------------------------------------
 @router.post("/pdf-to-excel")
-async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None)):
+async def pdf_to_excel(
+    file: UploadFile = File(...),
+    page_range: str = Form(None),
+    engine: str = Form("auto")
+):
     from bisect import bisect_left
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -1689,6 +1703,7 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
         active_ws = None
         last_page_headers = None
         
+        temp_images_created = []
         MAX_OCR_PAGES = 16
         ocr_processed = 0
         pages_to_process = parse_page_range(page_range, len(doc))
@@ -1739,6 +1754,25 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
             idx = bisect_left(sorted_list, val)
             return max(0, min(idx, len(sorted_list) - 1))
 
+        # Coordinate map helper to find row and col from PDF points
+        def get_cell_coord(x: float, y: float, sorted_x_list: list[float], sorted_y_list: list[float], base_row: int):
+            from bisect import bisect_left
+            col = 1
+            if sorted_x_list:
+                col = bisect_left(sorted_x_list, x) + 1
+                col = max(1, min(col, len(sorted_x_list)))
+            else:
+                col = max(1, int(x // 40) + 1)
+            
+            row_offset = 0
+            if sorted_y_list:
+                row_offset = bisect_left(sorted_y_list, y)
+                row_offset = max(0, min(row_offset, len(sorted_y_list) - 1))
+            else:
+                row_offset = max(0, int(y // 15))
+            
+            return base_row + row_offset, col
+
         for page_num in pages_to_process:
             page = doc.load_page(page_num)
             p_w = page.rect.width
@@ -1751,8 +1785,14 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                 drawings = []
                 
             # Perform text validation check to fallback to OCR under legacy hijacked mapping or scan
-            needs_ocr = page_needs_ocr(page)
-            if needs_ocr and ocr_processed < MAX_OCR_PAGES:
+            if engine == "ocr":
+                use_ocr = True
+            elif engine == "digital":
+                use_ocr = False
+            else:  # "auto"
+                use_ocr = page_needs_ocr(page)
+
+            if use_ocr and ocr_processed < MAX_OCR_PAGES:
                 page_dict = await asyncio.to_thread(get_page_elements, page, use_ocr=True)
                 ocr_processed += 1
             else:
@@ -1853,6 +1893,15 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                 current_row = 1
                 try:
                     ws.views.sheetView[0].showGridLines = True
+                except Exception:
+                    pass
+                
+                # Match orientation of PDF page
+                try:
+                    if p_w > p_h:
+                        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+                    else:
+                        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
                 except Exception:
                     pass
             
@@ -2141,12 +2190,93 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                     free_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                     ws.row_dimensions[current_row].height = f_sz + 6
                     current_row += 1
+
+            # Extract and embed page images/logos
+            try:
+                img_list = page.get_images()
+                page_table_sorted_x = []
+                page_table_sorted_y = []
+                
+                # Combine coordinates from all tables on this page to build a visual column model
+                x_coords_all = set()
+                y_coords_all = set()
+                for tab in table_list:
+                    for r in tab.rows:
+                        for cell in r.cells:
+                            if cell:
+                                x_coords_all.add(round(cell[0], 1))
+                                x_coords_all.add(round(cell[2], 1))
+                                y_coords_all.add(round(r.bbox[1], 1))
+                                y_coords_all.add(round(r.bbox[3], 1))
+                page_table_sorted_x = sorted(list(x_coords_all))
+                page_table_sorted_y = sorted(list(y_coords_all))
+                
+                # We place images relative to the first row of tables or current_row base
+                image_base_row = ws.max_row - len(page_table_sorted_y) if page_table_sorted_y else current_row
+                image_base_row = max(1, image_base_row)
+
+                for img_info in img_list[:12]:  # Cap to max 12 images per page to prevent bloated sheet
+                    xref = img_info[0]
+                    rects = page.get_image_rects(xref)
+                    if rects:
+                        rx0, ry0, rx1, ry1 = rects[0]
+                        dw = rx1 - rx0
+                        dh = ry1 - ry0
+                        
+                        # Skip tiny noise rects and page-spanning background visuals
+                        if dw < 15 or dh < 15:
+                            continue
+                        if dw >= 0.8 * p_w and dh >= 0.8 * p_h:
+                            continue
+                            
+                        base_img = doc.extract_image(xref)
+                        if base_img:
+                            img_bytes = base_img["image"]
+                            img_ext = base_img["ext"]
+                            
+                            # Create a unique temp file name
+                            temp_img_name = f"obj_img_{page_num}_{xref}_{uuid.uuid4().hex[:6]}.{img_ext}"
+                            temp_img_path = os.path.join(temp_dir, temp_img_name)
+                            
+                            with open(temp_img_path, "wb") as f_img:
+                                f_img.write(img_bytes)
+                                
+                            temp_images_created.append(temp_img_path)
+                            
+                            from openpyxl.drawing.image import Image as OpenpyxlImage
+                            ox_img = OpenpyxlImage(temp_img_path)
+                            # Convert points (1/72 inch) to pixels (roughly 1.333 ratio at 96 DPI)
+                            ox_img.width = int(dw * 1.333)
+                            ox_img.height = int(dh * 1.333)
+                            
+                            # Find target cell anchor
+                            cell_row, cell_col = get_cell_coord(rx0, ry0, page_table_sorted_x, page_table_sorted_y, image_base_row)
+                            col_letter = get_column_letter(cell_col)
+                            ox_img.anchor = f"{col_letter}{cell_row}"
+                            
+                            ws.add_image(ox_img)
+            except Exception as e_img:
+                print("Failed to embed image assets in Excel:", e_img)
                     
         if ws_created and "Sheet" in wb.sheetnames:
             del wb["Sheet"]
             
         wb.save(xlsx_path)
         doc.close()
+
+        # Clean up temporary image files
+        for p in temp_images_created:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+                
+        try:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+        except Exception:
+            pass
         
         return FileResponse(
             xlsx_path,

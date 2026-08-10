@@ -10,6 +10,7 @@ export default function PdfToExcel() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [pageRange, setPageRange] = useState<string>("");
+  const [engine, setEngine] = useState<"auto" | "digital" | "ocr">("auto");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.xlsx");
   const [showHelp, setShowHelp] = useState(false);
@@ -38,6 +39,7 @@ export default function PdfToExcel() {
     if (pageRange) {
       formData.append("page_range", pageRange);
     }
+    formData.append("engine", engine);
 
     try {
       const res = await axios.post(
@@ -137,20 +139,49 @@ export default function PdfToExcel() {
           )}
 
           {file && (
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-slate-800 mb-2">
-                Page Range (Optional)
-              </label>
-              <input
-                type="text"
-                value={pageRange}
-                onChange={(e) => setPageRange(e.target.value)}
-                placeholder="e.g. 1-5, 8, 11-15 (Max 8 OCR/scan pages)"
-                className="w-full px-3 py-2 border border-slate-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-550 text-sm text-slate-900 bg-white placeholder-slate-500 font-bold focus:border-green-600 focus:ring-green-600"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Specifying ranges allows converting large government PDFs fast without Render proxy timeouts.
-              </p>
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-2">
+                  Page Range (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={pageRange}
+                  onChange={(e) => setPageRange(e.target.value)}
+                  placeholder="e.g. 1-5, 8, 11-15 (Max 8 OCR/scan pages)"
+                  className="w-full px-3 py-2 border border-slate-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-550 text-sm text-slate-900 bg-white placeholder-slate-500 font-bold focus:border-green-600 focus:ring-green-600"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Specifying ranges allows converting large government PDFs fast without Render proxy timeouts.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-800 mb-2 flex items-center gap-1.5">
+                  <Target size={16} className="text-green-600" /> Extraction Engine
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: "auto", title: "⚡ Auto-Detect", desc: "OCR fallback for garbled text" },
+                    { id: "digital", title: "📄 Force Text", desc: "No OCR (Speed-optimized)" },
+                    { id: "ocr", title: "🔍 Force OCR", desc: "OCR everything (High-Fidelity)" }
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setEngine(m.id as any)}
+                      className={`p-2 rounded-xl text-left border transition flex flex-col justify-between min-h-[72px] ${
+                        engine === m.id
+                          ? "bg-green-50 border-green-500 ring-2 ring-green-500/20 text-green-950 font-bold"
+                          : "bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold block mb-0.5">{m.title}</span>
+                      <span className="text-[9px] text-gray-500 leading-tight block">{m.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
