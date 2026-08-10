@@ -445,34 +445,102 @@ def page_needs_ocr(page) -> bool:
     total_len = len(text)
     for char in text:
         o = ord(char)
-        # Check standard ASCII/Latin/Common Punctuation/Whitespace (space U+0020 to U+007E, newline, tab)
-        if (0x0020 <= o <= 0x007E) or char in "\n\r\t":
+        # Whitelist ranges:
+        # A. ASCII & Latin-1 Supplement: 0x0000 to 0x00FF
+        if 0x0000 <= o <= 0x00FF:
             continue
-        # Check Devanagari block
+        # B. Devanagari: 0x0900 to 0x097F
         if 0x0900 <= o <= 0x097F:
             continue
-        # Check Zero-Width formatting marks and LTR/RTL indicators
-        if 0x200B <= o <= 0x200F:
+        # C. Devanagari Extended / Sanskrit: 0xA8E0 to 0xA8FF
+        if 0xA8E0 <= o <= 0xA8FF:
             continue
-        # Check common dashes and Devanagari character extensions / rupee symbol / common Devanagari dandas
-        if o in [0x2011, 0x2012, 0x2013, 0x2014, 0x20B9, 0x0964, 0x0965]:
+        # D. Vedic Extensions: 0x1CD0 to 0x1CFF
+        if 0x1CD0 <= o <= 0x1CFF:
             continue
-        # Whitelist typical common typographic symbols (bullet point, ellipsis, smart quotes, degree, no-break space, etc.)
-        if o in [0x2022, 0x2026, 0x201C, 0x201D, 0x2018, 0x2019, 0x00A9, 0x00AE, 0x2122, 0x00B0, 0x00A0]:
+        # E. General Punctuation (Rupee symbol 0x20B9, dashes, spaces): 0x2000 to 0x20CF
+        if 0x2000 <= o <= 0x20CF:
             continue
-        # Also allow standard punctuation symbols
-        if chr(o) in "।॥.,;!?@#$%^&*()_+-=[]{}|\\'\":<>`/~'\"":
+        # F. Mathematical Operators & arrows, etc.: 0x2190 to 0x22FF
+        if 0x2190 <= o <= 0x22FF:
+            continue
+        # G. Common punctuation / symbols
+        if char in "।॥.,;!?@#$%^&*()_+-=[]{}|\\'\":<>`/~'\"":
             continue
         
         # Any other character outside valid bounds is considered invalid/suspicious (KrutiDev mapping noise)
         invalid_count += 1
         
     ratio = invalid_count / total_len if total_len > 0 else 0.0
-    # Over 5% suspicious characters dictates fallback to visual OCR
-    if ratio > 0.05:
+    # Over 30% suspicious characters dictates fallback to visual OCR
+    if ratio > 0.30:
         return True
         
     return False
+
+def get_hex_from_color(color_val) -> str:
+    """Safely converts grayscale, RGB, and CMYK colors to openpyxl ARGB hex strings."""
+    if not isinstance(color_val, (list, tuple)):
+        return "FF000000"
+    if len(color_val) == 1:
+        val = int(color_val[0] * 255)
+        r = g = b = val
+    elif len(color_val) == 3:
+        r = int(color_val[0] * 255)
+        g = int(color_val[1] * 255)
+        b = int(color_val[2] * 255)
+    elif len(color_val) == 4:
+        c, m, y, k = color_val
+        r = int(255 * (1.0 - c) * (1.0 - k))
+        g = int(255 * (1.0 - m) * (1.0 - k))
+        b = int(255 * (1.0 - y) * (1.0 - k))
+    else:
+        r = g = b = 0
+    r = max(0, min(255, r))
+    g = max(0, min(255, g))
+    b = max(0, min(255, b))
+    return f"FF{r:02x}{g:02x}{b:02x}"
+
+def sort_blocks_reading_order(blocks):
+    """
+    Sorts layout blocks visually using a layout-aware columns/rows analyzer.
+    Blocks with substantial vertical overlap (>40%) are sorted left-to-right (parallel columns).
+    Otherwise, sorted top-to-bottom.
+    """
+    text_blocks = [b for b in blocks if b.get("type") == 0]
+    other_blocks = [b for b in blocks if b.get("type") != 0]
+    
+    from functools import cmp_to_key
+    
+    def compare_blocks(b1, b2):
+        box1 = b1["bbox"]
+        box2 = b2["bbox"]
+        
+        y_overlap = min(box1[3], box2[3]) - max(box1[1], box2[1])
+        h1 = box1[3] - box1[1]
+        h2 = box2[3] - box2[1]
+        min_h = min(h1, h2)
+        
+        if min_h > 0 and (y_overlap / min_h) > 0.40:
+            if abs(box1[0] - box2[0]) > 3:
+                return -1 if box1[0] < box2[0] else 1
+                
+        if abs(box1[1] - box2[1]) > 3:
+            return -1 if box1[1] < box2[1] else 1
+            
+        return -1 if box1[0] < box2[0] else 1
+        
+    sorted_text_blocks = sorted(text_blocks, key=cmp_to_key(compare_blocks))
+    
+    # Sort lines inside each block and spans inside each line
+    for b in sorted_text_blocks:
+        if "lines" in b:
+            b["lines"].sort(key=lambda l: l["bbox"][1])
+            for l in b["lines"]:
+                if "spans" in l:
+                    l["spans"].sort(key=lambda s: s["bbox"][0])
+                    
+    return sorted_text_blocks + other_blocks
 
 def detect_text_color(img, bbox, page_w, page_h):
     try:
@@ -514,8 +582,10 @@ def detect_text_color(img, bbox, page_w, page_h):
         pass
     return 0
 
-def get_page_elements(page, force_ocr=False):
-    should_ocr = force_ocr or page_needs_ocr(page)
+def get_page_elements(page, use_ocr=None):
+    if use_ocr is None:
+        use_ocr = page_needs_ocr(page)
+    should_ocr = use_ocr
     if should_ocr:
         try:
             pix = page.get_pixmap(dpi=120)
@@ -1591,6 +1661,19 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
+    class StandardRow:
+        def __init__(self, bbox, cells):
+            self.bbox = bbox
+            self.cells = cells  # list of (x0, y0, x1, y1) or None
+
+    class StandardTable:
+        def __init__(self, bbox, rows, grid_text, row_count, col_count):
+            self.bbox = bbox
+            self.rows = rows  # list of StandardRow
+            self.grid_text = grid_text  # 2D list of strings
+            self.row_count = row_count
+            self.col_count = col_count
+
     try:
         temp_dir = tempfile.gettempdir()
         pdf_path = os.path.join(temp_dir, f"tmp_excel_{file.filename}")
@@ -1646,6 +1729,16 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                     s_b = b_bottom if r == end_row else Side(style=None)
                     cell.border = Border(left=s_l, right=s_r, top=s_t, bottom=s_b)
 
+        # Tolerant grid coordinate index finder
+        def find_coord_index(sorted_list, val, tolerance=2.0):
+            for idx, coord in enumerate(sorted_list):
+                if abs(coord - val) <= tolerance:
+                    return idx
+            # Fallback
+            from bisect import bisect_left
+            idx = bisect_left(sorted_list, val)
+            return max(0, min(idx, len(sorted_list) - 1))
+
         for page_num in pages_to_process:
             page = doc.load_page(page_num)
             p_w = page.rect.width
@@ -1659,21 +1752,69 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                 
             # Perform text validation check to fallback to OCR under legacy hijacked mapping or scan
             needs_ocr = page_needs_ocr(page)
-            if needs_ocr:
-                if ocr_processed < MAX_OCR_PAGES:
-                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=True)
-                    ocr_processed += 1
-                else:
-                    page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=False)
+            if needs_ocr and ocr_processed < MAX_OCR_PAGES:
+                page_dict = await asyncio.to_thread(get_page_elements, page, use_ocr=True)
+                ocr_processed += 1
             else:
-                page_dict = await asyncio.to_thread(get_page_elements, page, force_ocr=False)
+                page_dict = await asyncio.to_thread(get_page_elements, page, use_ocr=False)
                 
-            # Find tables
-            tabs = page.find_tables()
-            table_list = list(tabs.tables) if (tabs and tabs.tables) else []
+            # Sort blocks in visual reading order
+            if "blocks" in page_dict:
+                page_dict["blocks"] = sort_blocks_reading_order(page_dict["blocks"])
+                
+            # Define header/footer safety zones based on page height (top/bottom 8% or 55 pt)
+            top_margin = max(55.0, p_h * 0.08)
+            bottom_margin = p_h - max(55.0, p_h * 0.08)
+            def is_header_footer(bbox) -> bool:
+                if not bbox or len(bbox) < 4:
+                    return False
+                return bbox[3] <= top_margin or bbox[1] >= bottom_margin
+                
+            # Extract tables: Prioritize Layout-Based pdfplumber Detection
+            table_list = []
+            try:
+                with pdfplumber.open(pdf_path) as plumb_doc:
+                    if page_num < len(plumb_doc.pages):
+                        plumb_page = plumb_doc.pages[page_num]
+                        plumb_tables = plumb_page.find_tables()
+                        for t in plumb_tables:
+                            rows = []
+                            for r in t.rows:
+                                cells = []
+                                for cell in r.cells:
+                                    if cell is None:
+                                        cells.append(None)
+                                    elif isinstance(cell, (list, tuple)):
+                                        cells.append(cell)
+                                    else:
+                                        cells.append(getattr(cell, "bbox", None))
+                                rows.append(StandardRow(r.bbox, cells))
+                            grid_text = t.extract()
+                            col_count = len(t.cols) - 1 if hasattr(t, "cols") else max(len(r.cells) for r in t.rows)
+                            table_list.append(StandardTable(t.bbox, rows, grid_text, len(t.rows), col_count))
+            except Exception as e_plumb:
+                print("pdfplumber table extraction failed, falling back to PyMuPDF:", e_plumb)
+                
+            # Fallback to PyMuPDF find_tables if pdfplumber didn't catch anything
+            if not table_list:
+                tabs = page.find_tables()
+                if tabs and tabs.tables:
+                    for tab in tabs.tables:
+                        rows = []
+                        for r in tab.rows:
+                            cells = []
+                            for cell in r.cells:
+                                if cell:
+                                    cells.append(cell)
+                                else:
+                                    cells.append(None)
+                            rows.append(StandardRow(r.bbox, cells))
+                        grid_text = tab.extract()
+                        table_list.append(StandardTable(tab.bbox, rows, grid_text, tab.row_count, tab.col_count))
+            
             table_bboxes = [t.bbox for t in table_list]
             
-            # Extract free-text blocks (not overlapping any table)
+            # Extract free-text blocks (not overlapping any table and not in Header/Footer)
             free_spans = []
             for block in page_dict.get("blocks", []):
                 if block.get("type") == 0:
@@ -1685,14 +1826,14 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                                 if tx0 - 2 <= sx0 <= tx1 + 2 and ty0 - 2 <= sy0 <= ty1 + 2:
                                     in_table = True
                                     break
-                            if not in_table:
+                            if not in_table and not is_header_footer(span.get("bbox", (0,0,0,0))):
                                 free_spans.append(span)
                                 
             # Check continuation of tables
             table_header = None
             if table_list:
                 first_tab = table_list[0]
-                first_tab_grid = first_tab.extract()
+                first_tab_grid = first_tab.grid_text
                 if first_tab_grid and len(first_tab_grid) > 0:
                     table_header = [str(cell or "").strip() for cell in first_tab_grid[0]]
                     
@@ -1766,10 +1907,10 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                     for c_idx, cell in enumerate(r.cells):
                         if cell:
                             x0, y0, x1, y1 = cell
-                            c_start = bisect_left(sorted_x, round(x0, 1))
-                            c_end = bisect_left(sorted_x, round(x1, 1)) - 1
-                            r_start = bisect_left(sorted_y, round(y0, 1))
-                            r_end = bisect_left(sorted_y, round(y1, 1)) - 1
+                            c_start = find_coord_index(sorted_x, round(x0, 1))
+                            c_end = find_coord_index(sorted_x, round(x1, 1)) - 1
+                            r_start = find_coord_index(sorted_y, round(y0, 1))
+                            r_end = find_coord_index(sorted_y, round(y1, 1)) - 1
                             
                             c_start = max(0, min(c_start, len(sorted_x) - 2))
                             c_end = max(c_start, min(c_end, len(sorted_x) - 2))
@@ -1814,6 +1955,10 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                                     chunks.append(" ".join(line_text))
                             cell_text = "\n".join(chunks).strip()
                             
+                            # Fallback to grid extraction text if coordinate search yielded empty result
+                            if not cell_text and tab.grid_text and r_idx < len(tab.grid_text) and c_idx < len(tab.grid_text[r_idx]):
+                                cell_text = str(tab.grid_text[r_idx][c_idx] or "").strip()
+                                
                             target_cell = ws.cell(row=excel_r_start, column=excel_c_start)
                             target_cell.value = format_cell_value(cell_text)
                             
@@ -1831,7 +1976,7 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                                     
                             target_cell.alignment = Alignment(horizontal=h_align, vertical="center", wrap_text=True)
                             
-                            # Check background fill color
+                            # Check background fill color (using get_hex_from_color safety wrapper)
                             bg_color = None
                             for d in drawings:
                                 draw_fill = d.get("fill")
@@ -1847,13 +1992,14 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                                     iy1 = min(y1, ry1)
                                     if ix1 > ix0 and iy1 > iy0:
                                         if ((ix1 - ix0) * (iy1 - iy0)) / ((x1 - x0) * (y1 - y0)) >= 0.75:
-                                            fr, fg, fb = draw_fill
-                                            if fr >= 0.98 and fg >= 0.98 and fb >= 0.98:
-                                                continue
-                                            bg_color = f"FF{int(fr*255):02x}{int(fg*255):02x}{int(fb*255):02x}"
-                                            break
-                                            
-                            if bg_color and bg_color.upper() != "FFFFFFFF":
+                                            bg_color = get_hex_from_color(draw_fill)
+                                            # Skip pure white fills
+                                            if bg_color.upper() == "FFFFFFFF":
+                                                bg_color = None
+                                            else:
+                                                break
+                                                
+                            if bg_color:
                                 target_cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
                                 
                             # Border stroke mapping
@@ -1866,7 +2012,9 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                                 pts = d.get("rect", (0, 0, 0, 0))
                                 stroke_c = d.get("color")
                                 if stroke_c and d.get("type") in ["l", "rect"]:
-                                    hex_c = f"{int(stroke_c[0]*255):02x}{int(stroke_c[1]*255):02x}{int(stroke_c[2]*255):02x}"
+                                    hex_c_full = get_hex_from_color(stroke_c)
+                                    hex_c = hex_c_full[2:]  # Remove the alpha channel for openpyxl Side
+                                    
                                     width = d.get("width", 1.0)
                                     style = 'medium' if width >= thick_threshold else 'thin'
                                     
@@ -1894,7 +2042,8 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                             font_n = "Nirmala UI" if contains_deva(cell_text) else "Calibri"
                             font_sz = 11
                             font_c = "FF000000"
-                            flags = 0
+                            is_bold = False
+                            is_italic = False
                             
                             if spans_in_cell:
                                 ref_span = spans_in_cell[0]
@@ -1906,9 +2055,10 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                                 color_b = color_int & 255
                                 font_c = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
                                 
-                            is_bold = bool(flags & 16)
-                            is_italic = bool(flags & 2)
-                            
+                                font_name_lower = ref_span.get("font", "").lower()
+                                is_bold = bool(flags & 16) or any(x in font_name_lower for x in ["bold", "black", "heavy", "semibold"])
+                                is_italic = bool(flags & 2) or any(x in font_name_lower for x in ["italic", "oblique"])
+                                
                             if bg_color:
                                 r_val = int(bg_color[2:4], 16)
                                 g_val = int(bg_color[4:6], 16)
@@ -1983,7 +2133,11 @@ async def pdf_to_excel(file: UploadFile = File(...), page_range: str = Form(None
                     color_b = color_int & 255
                     f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
                     
-                    free_cell.font = Font(name=f_name, size=f_sz, bold=bool(f_flags & 16), italic=bool(f_flags & 2), color=f_color)
+                    font_nm_lower = ref_s.get("font", "").lower()
+                    f_bold = bool(f_flags & 16) or any(x in font_nm_lower for x in ["bold", "black", "heavy", "semibold"])
+                    f_italic = bool(f_flags & 2) or any(x in font_nm_lower for x in ["italic", "oblique"])
+                    
+                    free_cell.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
                     free_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                     ws.row_dimensions[current_row].height = f_sz + 6
                     current_row += 1

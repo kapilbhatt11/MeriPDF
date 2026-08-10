@@ -216,16 +216,16 @@ export default function PdfToJpg() {
 
             {/* Page Range Selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-600 flex justify-between">
+              <label className="text-xs font-bold text-slate-800 flex justify-between">
                 <span>Page Range (Optional)</span>
-                <span className="text-[10px] text-gray-400 font-normal">e.g. 1-3, 5, 8-10</span>
+                <span className="text-[10px] text-slate-500 font-normal">e.g. 1-3, 5, 8-10</span>
               </label>
               <input
                 type="text"
                 value={pageRange}
                 onChange={(e) => setPageRange(e.target.value)}
                 placeholder="All pages if blank"
-                className="p-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm font-medium shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition placeholder-gray-400"
+                className="p-2 border border-slate-400 rounded-lg bg-white text-slate-950 text-sm font-semibold shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition placeholder-slate-500"
               />
             </div>
 

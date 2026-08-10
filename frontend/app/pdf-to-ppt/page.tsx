@@ -373,7 +373,7 @@ export default function PdfToPowerpoint() {
 
           {/* Page Range Input */}
           <div className="mb-6">
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
               Page Range (Optional)
             </label>
             <input
@@ -381,9 +381,9 @@ export default function PdfToPowerpoint() {
               value={pageRange}
               onChange={(e) => setPageRange(e.target.value)}
               placeholder="e.g. 1-5, 8, 11-15 (Leave blank for all pages)"
-              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 text-xs text-gray-900 font-bold placeholder:text-gray-400 placeholder:font-normal bg-white shadow-sm transition"
+              className="w-full px-3.5 py-2.5 border border-slate-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500 text-xs text-slate-900 font-extrabold placeholder:text-slate-500 placeholder:font-normal bg-white shadow-sm transition"
             />
-            <p className="text-[10px] text-gray-400 mt-1">
+            <p className="text-[10px] text-slate-500 mt-1">
               Specify ranges if you only need specific pages of large PDFs.
             </p>
           </div>

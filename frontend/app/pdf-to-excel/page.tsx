@@ -138,7 +138,7 @@ export default function PdfToExcel() {
 
           {file && (
             <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-slate-800 mb-2">
                 Page Range (Optional)
               </label>
               <input
@@ -146,9 +146,9 @@ export default function PdfToExcel() {
                 value={pageRange}
                 onChange={(e) => setPageRange(e.target.value)}
                 placeholder="e.g. 1-5, 8, 11-15 (Max 8 OCR/scan pages)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500 text-sm text-gray-900 bg-white placeholder-gray-400 font-medium"
+                className="w-full px-3 py-2 border border-slate-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-550 text-sm text-slate-900 bg-white placeholder-slate-500 font-bold focus:border-green-600 focus:ring-green-600"
               />
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 Specifying ranges allows converting large government PDFs fast without Render proxy timeouts.
               </p>
             </div>
