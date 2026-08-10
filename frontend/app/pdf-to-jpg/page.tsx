@@ -225,7 +225,7 @@ export default function PdfToJpg() {
                 value={pageRange}
                 onChange={(e) => setPageRange(e.target.value)}
                 placeholder="All pages if blank"
-                className="p-2 border rounded-lg bg-slate-50 text-gray-700 text-sm font-medium shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition"
+                className="p-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm font-medium shadow-sm focus:ring-2 focus:ring-amber-500 outline-none hover:border-amber-300 transition placeholder-gray-400"
               />
             </div>
 

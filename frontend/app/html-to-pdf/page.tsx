@@ -220,7 +220,7 @@ export default function HtmlToPdf() {
                     onChange={(e) => {
                       setUrlInput(e.target.value);
                     }}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 pl-4 pr-12 outline-none focus:bg-white focus:border-violet-500 shadow-sm transition-all placeholder:text-slate-400 text-slate-800 font-medium"
+                    className="w-full bg-white border border-gray-300 rounded-xl py-3 pl-4 pr-12 outline-none focus:border-violet-500 shadow-sm transition-all placeholder:text-slate-400 text-gray-900 font-medium"
                   />
                   {urlInput && (
                     <button

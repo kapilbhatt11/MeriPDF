@@ -161,7 +161,7 @@ export default function UnlockPDF() {
               placeholder="e.g. MySecretPass123"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-gray-700"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-gray-900 bg-white placeholder-gray-400 font-medium"
             />
             <p className="text-xs text-gray-500 mt-2">
               Note: We do not crack passwords. You must know the current password to remove it permanently.

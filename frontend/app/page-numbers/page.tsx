@@ -284,7 +284,7 @@ export default function PageNumbersPage() {
                                                 min="1"
                                                 value={startNumber}
                                                 onChange={(e) => setStartNumber(parseInt(e.target.value) || 1)}
-                                                className="w-full bg-slate-50 border border-slate-200 py-3 pl-10 pr-4 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                                                className="w-full bg-white border border-slate-200 py-3 pl-10 pr-4 rounded-xl font-bold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all placeholder-gray-400"
                                             />
                                         </div>
                                     </div>
@@ -327,7 +327,7 @@ export default function PageNumbersPage() {
                                                 type="text"
                                                 value={color}
                                                 onChange={(e) => setColor(e.target.value)}
-                                                className="flex-1 min-w-0 bg-slate-50 border border-slate-200 py-3 px-4 rounded-xl font-mono font-bold text-slate-700 outline-none"
+                                                className="flex-1 min-w-0 bg-white border border-slate-200 py-3 px-4 rounded-xl font-mono font-bold text-gray-900 outline-none"
                                             />
                                         </div>
                                     </div>

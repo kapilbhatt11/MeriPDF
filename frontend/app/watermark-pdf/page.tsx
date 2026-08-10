@@ -298,7 +298,7 @@ export default function WatermarkPDF() {
                     value={watermarkText}
                     onChange={(e) => setWatermarkText(e.target.value)}
                     placeholder="Enter text..."
-                    className="w-full bg-slate-50 border-2 border-transparent focus:border-amber-500/20 focus:bg-white p-4 rounded-2xl outline-none transition-all font-bold text-sm"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500/20 focus:bg-white p-4 rounded-2xl outline-none transition-all font-bold text-sm text-slate-850 text-slate-800 placeholder-slate-400"
                   />
                 </div>
               ) : (
@@ -513,7 +513,7 @@ export default function WatermarkPDF() {
                     type="text" 
                     value={pageRange}
                     onChange={(e) => setPageRange(e.target.value)}
-                    className="w-full bg-white border border-slate-200 p-3 rounded-xl outline-none focus:border-amber-500 font-bold text-xs text-center"
+                    className="w-full bg-white border border-slate-200 p-3 rounded-xl outline-none focus:border-amber-500 font-bold text-xs text-center text-slate-850 text-slate-800 placeholder-slate-400"
                     placeholder="e.g. 1-16"
                   />
                 </div>
