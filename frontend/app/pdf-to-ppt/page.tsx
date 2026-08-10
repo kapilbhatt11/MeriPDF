@@ -404,7 +404,6 @@ export default function PdfToPowerpoint() {
                 <a
                   href={downloadUrl}
                   download={downloadName}
-                  onClick={() => setDownloadUrl(null)}
                   className="inline-flex items-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl hover:bg-emerald-700 font-bold transition shadow-md w-full justify-center text-sm"
                 >
                   <FileDown size={18} /> Download PowerPoint (.pptx)

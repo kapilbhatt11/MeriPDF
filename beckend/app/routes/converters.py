@@ -464,6 +464,46 @@ def page_needs_ocr(page) -> bool:
         
     return False
 
+def detect_text_color(img, bbox, page_w, page_h):
+    try:
+        w_img, h_img = img.size
+        # Conversion to pixel indices
+        px0 = int(bbox[0] * w_img / page_w)
+        py0 = int(bbox[1] * h_img / page_h)
+        px1 = int(bbox[2] * w_img / page_w)
+        py1 = int(bbox[3] * h_img / page_h)
+        
+        px0 = max(0, min(w_img - 1, px0))
+        px1 = max(px0 + 1, min(w_img, px1))
+        py0 = max(0, min(h_img - 1, py0))
+        py1 = max(py0 + 1, min(h_img, py1))
+        
+        cropped = img.crop((px0, py0, px1, py1))
+        pixels = list(cropped.getdata())
+        
+        fg_pixels = []
+        for p in pixels:
+            if isinstance(p, tuple):
+                r, g, b = p[0], p[1], p[2]
+            else:
+                r = g = b = p
+                
+            luma = 0.299 * r + 0.587 * g + 0.114 * b
+            if luma < 210:  # foreground (darkish)
+                fg_pixels.append((r, g, b))
+                
+        if len(fg_pixels) > 5:
+            avg_r = sum(p[0] for p in fg_pixels) // len(fg_pixels)
+            avg_g = sum(p[1] for p in fg_pixels) // len(fg_pixels)
+            avg_b = sum(p[2] for p in fg_pixels) // len(fg_pixels)
+            
+            if avg_r < 35 and avg_g < 35 and avg_b < 35:
+                return 0
+            return (avg_r << 16) | (avg_g << 8) | avg_b
+    except Exception:
+        pass
+    return 0
+
 def get_page_elements(page, force_ocr=False):
     should_ocr = force_ocr or page_needs_ocr(page)
     if should_ocr:
@@ -593,11 +633,13 @@ def get_page_elements(page, force_ocr=False):
                         stable_sy0 = word_w["bbox"][1]
                         stable_sy1 = word_w["bbox"][3]
                         
+                        color_val = detect_text_color(img, (sx0, stable_sy0, sx1, stable_sy1), page.rect.width, page.rect.height)
+                        
                         synthetic_spans.append({
                             "text": s["text"],
                             "font": "Arial",
                             "size": font_size,
-                            "color": 0,
+                            "color": color_val,
                             "flags": 0,
                             "bbox": (sx0, stable_sy0, sx1, stable_sy1)
                         })
@@ -1348,10 +1390,12 @@ async def pdf_to_ppt(
 
                                 left = max(0, min(int(Pt(left_offset + lx0 * scale_x)), prs.slide_width - Pt(5)))
                                 top = max(0, min(int(Pt(top_offset + ly0 * scale_y)), prs.slide_height - Pt(5)))
-                                width = min(int(Pt(max(lx1 - lx0 + 4, 10) * scale_x)), prs.slide_width - left)
+                                # Add 15% width padding + 10pt buffer to avoid clipping or wrapping, especially for Devanagari script spacing
+                                padded_w = (lx1 - lx0) * 1.15 + 10
+                                width = min(int(Pt(max(padded_w, 15) * scale_x)), prs.slide_width - left)
                                 height = min(int(Pt(max(ly1 - ly0 + 2, 8) * scale_y)), prs.slide_height - top)
                                 if width <= Pt(4) or height <= Pt(4): continue
-
+ 
                                 txBox = slide.shapes.add_textbox(left, top, width, height)
                                 tf = txBox.text_frame
                                 tf.word_wrap = False
@@ -1361,7 +1405,7 @@ async def pdf_to_ppt(
                                 tf.margin_top = Pt(0)
                                 tf.margin_bottom = Pt(0)
                                 p_elem = tf.paragraphs[0]
-
+ 
                                 for span in line.get("spans", []):
                                     run_text = span.get("text", "")
                                     run_text = "".join(c for c in run_text if ord(c) >= 32 or c in "\n\r\t")
@@ -1374,10 +1418,12 @@ async def pdf_to_ppt(
                                         run.text = seg_text
                                         
                                         font_sz = max(6.0, min(span.get("size", 10.0), 72.0))
-                                        run.font.size = Pt(font_sz * scale_y)
                                         if is_deva:
+                                            # Scale font down slightly for Devanagari, as it renders larger on slides
+                                            run.font.size = Pt(font_sz * scale_y * 0.9)
                                             run.font.name = "Nirmala UI"
                                         else:
+                                            run.font.size = Pt(font_sz * scale_y)
                                             run.font.name = map_font_name(span.get("font", "Arial"))
                                             
                                         run.font.color.rgb = safe_rgb_color(span.get("color", 0))
