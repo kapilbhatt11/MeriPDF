@@ -468,8 +468,11 @@ def page_needs_ocr(page) -> bool:
         # F. Mathematical Operators & arrows, etc.: 0x2190 to 0x22FF
         if 0x2190 <= o <= 0x22FF:
             continue
-        # G. Common punctuation / symbols
-        if char in "।॥.,;!?@#$%^&*()_+-=[]{}|\\'\":<>`/~'\"":
+        # G. Custom encoded fonts (Balinese, Sundanese, Ol Chiki, Georgian): 0x1B00 to 0x1CFF
+        if 0x1B00 <= o <= 0x1CFF:
+            continue
+        # H. Common punctuation / symbols
+        if char in "|/<>~`\"'\\:।॥.,;!?@#$%^&*()_+-=[]{}":
             continue
         
         # Any other character outside valid bounds is considered invalid/suspicious (KrutiDev mapping noise)
@@ -1717,11 +1720,146 @@ async def pdf_to_excel(
         # Helper to check if text contains Devanagari characters
         def contains_deva(s: str) -> bool:
             return any(0x0900 <= ord(c) <= 0x097F for c in s)
+
+        def clean_hindi_text(text: str) -> str:
+            if not text:
+                return text
+            
+            # 1. Direct replacements for custom font characters mapping
+            replacements = {
+                "\u0223": "\u0940",       # ȣ -> ी
+                "\u1b43": "\u0915\u094d\u0937",  # ᭃ -> क्ष
+                "\u1b4d": "\u0915\u094d",  # ᭍ -> क्
+                "\u1b6b": "\u0936\u094d",  # ᭫ -> श्
+                "\u1b4f": "\u0917\u094d\u0928",  # ᭏ -> ग्न
+                "\u1b54": "\u091c\u094d\u092f",  # ᭔ -> ज्य
+                "\u1b5b": "\u0923\u094d",  # ᭛ -> ण्
+                "\u1b5c": "\u0924\u094d",  # ᭜ -> त्
+                "\u1b5f": "\u0927\u094d",    # ᭟ -> ध्
+                "\u1b60": "\u0928\u094d",  # ᭠ -> न्
+                "\u1b61": "\u092a\u094d",  # ᭡ -> प्
+                "\u1b63": "\u092c\u094d\u0932\u094d\u092f\u0942", # ᭣ -> ब्ल्यू
+                "\u1b64": "\u092d\u094d",  # ᭤ -> भ्
+                "\u1b65": "\u092e\u094d",  # ᭥ -> म्
+                "\u1b68": "\u0932\u094d",  # ᭨ -> ल्
+                "\u1b6a": "\u0935\u094d\u092f",  # ᭪ -> vy
+                "\u1b6d": "\u0938\u094d",  # ᭭ -> स
+                "\u1b93": "\u0915\u094d\u0930",  # ᮓ -> क्र
+                "\u1b9d": "\u091f\u094d\u0930",  # ᮝ -> ट्र
+                "\u1b9f": "\u0921\u094d\u0930",  # ᮟ -> ड्र
+                "\u1ba2": "\u0924\u094d\u0930",  # ᮢ -> त्र
+                "\u1ba4": "\u0926\u094d\u0930",  # ᮤ -> द्र
+                "\u1ba7": "\u092a\u094d\u0930",  # ᮧ -> प्र
+                "\u1c5f": "\u0949",       # ᱟ -> ॉ
+                "\u1c6b": "\u0924\u094d\u0924",  # ᱫ -> त्त
+                "\u1c6d": "\u0940\u0902",  # ᱭ -> ीं
+                "\u1c76": "\u0947\u0902",  # ᱶ -> ें
+                "\u1c79": "\u0948\u0902",  # ᱹ -> ैं
+                "\u1c82": "\u094b\u0902",  # ᲂ -> ों
+                "\u1c90": "\u0913\u0902",  # Ა -> ओं
+                "\u1ca6": "\u0915\u094d\u0924",  # Ღ -> क्त
+                "\u1cc7": "\u0926\u094d\u0935",  # ᳇ -> द्व
+                "\u1ccd": "\u0926\u094d\u0927",  # ᳍ -> द्ध
+                "\u00c8": "\u0915\u094d",  # È -> क्
+                "\u00a2": "\u0915\u094d\u0937",  # ¢ -> क्ष
+                
+                # Additional mapped characters
+                "\u1cf1": "\u0940",       # ᳱ -> ी
+                "\u1cef": "\u093f",       # ᳯ -> ि
+                "\u1cf0": "\u093f",       # ᳰ -> ि
+                "\u1cf2": "\u093f",       # ᳲ -> ि
+                "\u1cf3": "\u094d\u0930",  # ᳳ -> ्र
+            }
+            for k, v in replacements.items():
+                text = text.replace(k, v)
+                
+            # 2. Contextual rules
+            import re
+            text = re.sub("([\u0900-\u097F])\u1c6e", "र्\\1ी", text) # C + ᱮ -> र् + C + ी
+            text = re.sub("([\u0900-\u097F])\u1c77", "र्\\1े", text) # C + ᱷ -> र् + C + े
+            text = re.sub("([\u0905-\u093F\u0940-\u094Dक-ह][\u093e-\u094c\u0902]?)ᭅ", "र्\\1", text) # C + ᭅ -> र् + C
+            
+            # 3. Visual vowel reordering: ि followed by consonant cluster -> cluster + ि
+            text = re.sub("\u093F([क-ह](?:\u094D[क-ह])*)", "\\1\u093F", text)
+            
+            # 4. Word hacks & cleaner normalizations
+            word_hacks = {
+                "र.": "₹",
+                "ᱨ.": "₹",
+                "ᱨ": "र",
+                "भतȸ": "भर्ती",
+                "महत्त्वपूर्ण": "महत्वपूर्ण",
+                "सत् यापन": "सत्यापन",
+                "सत्यापन": "सत्यापन",
+                "समस् त": "समस्त",
+                "आवश् यक": "आवश्यक",
+                "राज्य य": "राज्य",
+                "मध्य य": "मध्य",
+                "मध्यय": "मध्य",
+                "मान् ": "मान्य ",
+                "अमान् ": "अमान्य ",
+                "बॉस् ": "बॉक्स ",
+                "क᳟": "की",
+                "्र": "्र",
+                "रिपो्रटग": "रिपोर्टिंग",
+                "अत:कम्प्युटर": "अतःकम्प्यूटर",
+                "कम्प्युटर": "कम्प्यूटर",
+                "कोइ": "कोई",
+                "लार्इन": "लाईन",
+                "आनलार्इन": "ऑनलाइन",
+                "ओनलार्इन": "ऑनलाइन",
+                "कियोस्क": "कियोस्क",
+                "माध्ययम": "माध्यम",
+                "दिव्य यांगजन": "दिव्यांगजन",
+                "अभ्यर्थयों": "अभ्यर्थियों",
+                "परीक्षार्थयों": "परीक्षार्थियों",
+                "अ᭤यᳶथयᲂ": "अभ्यर्थियों",
+                "परीᭃाᳶथयᲂ": "परीक्षार्थियों",
+            }
+            for k, v in word_hacks.items():
+                text = text.replace(k, v)
+            return text
+
+        def normalize_margin_text(text: str) -> str:
+            if not text:
+                return ""
+            import re
+            text = text.strip().lower()
+            text = re.sub(r"\d+", "\\\\d", text)
+            text = re.sub(r"\s+", " ", text)
+            return text
+
+        repeated_margin_texts = set()
+        try:
+            margin_text_page_map = {}
+            for p_idx in pages_to_process:
+                p_temp = doc.load_page(p_idx)
+                p_h_val = p_temp.rect.height
+                p_dict = p_temp.get_text("dict")
+                for bl in p_dict.get("blocks", []):
+                    if bl.get("type") == 0:
+                        for ln in bl.get("lines", []):
+                            for sp in ln.get("spans", []):
+                                sb = sp.get("bbox", (0,0,0,0))
+                                if sb[3] <= 48 or sb[1] >= p_h_val - 48:
+                                    s_txt = sp.get("text", "")
+                                    norm_txt = normalize_margin_text(s_txt)
+                                    if norm_txt:
+                                        if norm_txt not in margin_text_page_map:
+                                            margin_text_page_map[norm_txt] = set()
+                                        margin_text_page_map[norm_txt].add(p_idx)
+            for norm_txt, p_set in margin_text_page_map.items():
+                if len(p_set) >= 2:
+                    repeated_margin_texts.add(norm_txt)
+        except Exception as e_prescan:
+            print("Repeated margin pre-scan failed:", e_prescan)
             
         # Helper to format values (numeric coercion, retaining leading zero IDs)
         def format_cell_value(text: str):
             if not text:
                 return text
+            # Clean Hindi text first
+            text = clean_hindi_text(text)
             import re
             # Clean CID patterns like (cid:1234)
             text = re.sub(r"\(cid:\d+\)", "", text)
@@ -1817,21 +1955,22 @@ async def pdf_to_excel(
             def is_header_footer(bbox, text_val="", font_sz=11.0) -> bool:
                 if not bbox or len(bbox) < 4:
                     return False
-                if bbox[3] <= top_margin:
-                    text_clean = text_val.strip()
-                    if font_sz >= 10.0 or len(text_clean) > 25:
-                        return False
-                    if any(x in text_clean.lower() for x in ["मण्डल", "भोपाल", "कार्यालय", "परीक्षा", "शाखा", "विभाग"]):
-                        return False
-                    return True
-                if bbox[1] >= bottom_margin:
-                    text_clean = text_val.strip()
-                    if font_sz >= 10.0 or len(text_clean) > 25:
-                        return False
-                    text_lower = text_clean.lower()
-                    if any(x in text_lower for x in ["page", "पृष्ठ", "क्र."]) or text_clean.isdigit():
+                if bbox[3] <= 48:
+                    norm_t = normalize_margin_text(text_val)
+                    if norm_t in repeated_margin_texts:
                         return True
-                    return False
+                    text_clean = text_val.strip().lower()
+                    if "page" in text_clean or "पृष्ठ" in text_clean or text_clean.isdigit():
+                        return True
+                    if len(text_clean) <= 15 and any(x in text_clean for x in ["मण्डल", "भोपाल", "परीक्षा", "नियमपुस्तिका"]):
+                        return True
+                if bbox[1] >= p_h - 48:
+                    norm_t = normalize_margin_text(text_val)
+                    if norm_t in repeated_margin_texts:
+                        return True
+                    text_clean = text_val.strip().lower()
+                    if "page" in text_clean or "पृष्ठ" in text_clean or text_clean.isdigit():
+                        return True
                 return False
                 
             # Extract tables: Prioritize Layout-Based pdfplumber Detection
@@ -1852,7 +1991,8 @@ async def pdf_to_excel(
                                         cells.append(cell)
                                     else:
                                         cells.append(getattr(cell, "bbox", None))
-                                rows.append(StandardRow(r.bbox, cells))
+                                r_bbox = r.bbox if hasattr(r, "bbox") else t.bbox
+                                rows.append(StandardRow(r_bbox, cells))
                             grid_text = t.extract()
                             col_count = len(t.cols) - 1 if hasattr(t, "cols") else max(len(r.cells) for r in t.rows)
                             table_list.append(StandardTable(t.bbox, rows, grid_text, len(t.rows), col_count))
@@ -1861,38 +2001,25 @@ async def pdf_to_excel(
                 
             # Fallback to PyMuPDF find_tables if pdfplumber didn't catch anything
             if not table_list:
-                tabs = page.find_tables()
-                if tabs and tabs.tables:
-                    for tab in tabs.tables:
-                        rows = []
-                        for r in tab.rows:
-                            cells = []
-                            for cell in r.cells:
-                                if cell:
-                                    cells.append(cell)
-                                else:
-                                    cells.append(None)
-                            rows.append(StandardRow(r.bbox, cells))
-                        grid_text = tab.extract()
-                        table_list.append(StandardTable(tab.bbox, rows, grid_text, tab.row_count, tab.col_count))
+                try:
+                    tabs = page.find_tables()
+                    if tabs and tabs.tables:
+                        for tab in tabs.tables:
+                            rows = []
+                            for r in tab.rows:
+                                cells = []
+                                for cell in r.cells:
+                                    if cell:
+                                        cells.append(cell)
+                                    else:
+                                        cells.append(None)
+                                r_bbox = r.bbox if hasattr(r, "bbox") else tab.bbox
+                                rows.append(StandardRow(r_bbox, cells))
+                            grid_text = tab.extract()
+                            table_list.append(StandardTable(tab.bbox, rows, grid_text, tab.row_count, tab.col_count))
+                except Exception as e_fitz_tab:
+                    print("PyMuPDF fallback table extraction failed:", e_fitz_tab)
             
-            table_bboxes = [t.bbox for t in table_list]
-            
-            # Extract free-text blocks (not overlapping any table and not in Header/Footer)
-            free_spans = []
-            for block in page_dict.get("blocks", []):
-                if block.get("type") == 0:
-                    for line in block.get("lines", []):
-                        for span in line.get("spans", []):
-                            sx0, sy0, sx1, sy1 = span.get("bbox", (0,0,0,0))
-                            in_table = False
-                            for tx0, ty0, tx1, ty1 in table_bboxes:
-                                if tx0 - 2 <= sx0 <= tx1 + 2 and ty0 - 2 <= sy0 <= ty1 + 2:
-                                    in_table = True
-                                    break
-                            if not in_table and not is_header_footer(span.get("bbox", (0,0,0,0)), span.get("text", ""), span.get("size", 11.0)):
-                                free_spans.append(span)
-                                
             # Check continuation of tables
             table_header = None
             if table_list:
@@ -1928,369 +2055,376 @@ async def pdf_to_excel(
                         ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
                 except Exception:
                     pass
+
+            # Gather and sort all visual components on the page sequentially
+            page_elements = []
             
-            # Group free_spans into horizontal lines
-            lines_free = []
-            if free_spans:
-                free_spans.sort(key=lambda s: s["bbox"][1])
-                curr_y = free_spans[0]["bbox"][1]
-                curr_line = [free_spans[0]]
-                for s in free_spans[1:]:
-                    if abs(s["bbox"][1] - curr_y) <= 5:
-                        curr_line.append(s)
-                    else:
-                        lines_free.append(curr_line)
-                        curr_line = [s]
-                        curr_y = s["bbox"][1]
-                if curr_line:
-                    lines_free.append(curr_line)
-
-            # Combine coordinates from all tables and free text lines on this page to build a visual rows layout
-            x_coords_all = set()
-            y_coords_all = set()
-            for tab in table_list:
-                for r in tab.rows:
-                    for cell in r.cells:
-                        if cell:
-                            x_coords_all.add(round(cell[0], 1))
-                            x_coords_all.add(round(cell[2], 1))
-                            y_coords_all.add(round(r.bbox[1], 1))
-                            y_coords_all.add(round(r.bbox[3], 1))
-            for line_objs in lines_free:
-                line_y = round(line_objs[0]["bbox"][1], 1)
-                y_coords_all.add(line_y)
+            # 1. Add Tables
+            for t in table_list:
+                page_elements.append({
+                    "type": "table",
+                    "bbox": t.bbox,
+                    "y0": t.bbox[1],
+                    "data": t
+                })
                 
-            page_table_sorted_x = sorted(list(x_coords_all))
-            page_table_sorted_y = sorted(list(y_coords_all))
-            page_base_row = current_row
-
-            # Place tables on the worksheet
-            for t_idx, tab in enumerate(table_list):
-                tx0, ty0, tx1, ty1 = tab.bbox
-                
-                # Deduplicate and sort column boundaries (x coordinates) and row boundaries (y coordinates)
-                x_coords = set()
-                for r in tab.rows:
-                    for cell in r.cells:
-                        if cell:
-                            x_coords.add(round(cell[0], 1))
-                            x_coords.add(round(cell[2], 1))
-                sorted_x = sorted(list(x_coords))
-                merged_x = []
-                for val in sorted_x:
-                    if not merged_x or val - merged_x[-1] > 2.0:
-                        merged_x.append(val)
-                sorted_x = merged_x
-                
-                if len(sorted_x) < 2:
-                    sorted_x = [tx0 + i * (tx1 - tx0)/max(1, tab.col_count) for i in range(tab.col_count + 1)]
-                    
-                y_coords = set()
-                for r in tab.rows:
-                    y_coords.add(round(r.bbox[1], 1))
-                    y_coords.add(round(r.bbox[3], 1))
-                sorted_y = sorted(list(y_coords))
-                merged_y = []
-                for val in sorted_y:
-                    if not merged_y or val - merged_y[-1] > 2.0:
-                        merged_y.append(val)
-                sorted_y = merged_y
-                
-                if len(sorted_y) < 2:
-                    sorted_y = [ty0 + i * (ty1 - ty0)/max(1, tab.row_count) for i in range(tab.row_count + 1)]
-                    
-                # Format column widths
-                for c in range(len(sorted_x) - 1):
-                    col_letter = get_column_letter(c + 1)
-                    col_width_excel = (sorted_x[c+1] - sorted_x[c]) / 7.5
-                    current_w = ws.column_dimensions[col_letter].width or 8
-                    ws.column_dimensions[col_letter].width = max(current_w, max(6.0, min(col_width_excel, 60.0)))
-                    
-                # Store grid merges to process
-                merges_to_apply = []
-                
-                # Style and write cells
-                for r_idx, r in enumerate(tab.rows):
-                    max_font_size = 11
-                    for c_idx, cell in enumerate(r.cells):
-                        if cell:
-                            x0, y0, x1, y1 = cell
-                            c_start = find_coord_index(sorted_x, round(x0, 1))
-                            c_end = find_coord_index(sorted_x, round(x1, 1)) - 1
-                            r_start = find_coord_index(page_table_sorted_y, round(y0, 1))
-                            r_end = find_coord_index(page_table_sorted_y, round(y1, 1)) - 1
+            # 2. Add Free Text Blocks (not inside any table bounds and not header/footer)
+            for block in page_dict.get("blocks", []):
+                if block.get("type") == 0:
+                    overlap = False
+                    bx0, by0, bx1, by1 = block["bbox"]
+                    for t in table_list:
+                        tx0, ty0, tx1, ty1 = t.bbox
+                        ix0 = max(bx0, tx0)
+                        iy0 = max(by0, ty0)
+                        ix1 = min(bx1, tx1)
+                        iy1 = min(by1, ty1)
+                        if ix1 > ix0 and iy1 > iy0:
+                            overlap_area = (ix1 - ix0) * (iy1 - iy0)
+                            block_area = (bx1 - bx0) * (by1 - by0)
+                            if block_area > 0 and (overlap_area / block_area) > 0.3:
+                                overlap = True
+                                break
+                    if not overlap:
+                        valid_lines = []
+                        for line in block.get("lines", []):
+                            line_text = "".join(span.get("text", "") for span in line.get("spans", []))
+                            if not is_header_footer(line.get("bbox", (0,0,0,0)), line_text, 11):
+                                valid_lines.append(line)
+                        if valid_lines:
+                            page_elements.append({
+                                "type": "text_block",
+                                "bbox": block["bbox"],
+                                "y0": block["bbox"][1],
+                                "data": valid_lines
+                            })
                             
-                            c_start = max(0, min(c_start, len(sorted_x) - 2))
-                            c_end = max(c_start, min(c_end, len(sorted_x) - 2))
-                            r_start = max(0, min(r_start, len(page_table_sorted_y) - 2))
-                            r_end = max(r_start, min(r_end, len(page_table_sorted_y) - 2))
-                            
-                            excel_r_start = current_row + r_start
-                            excel_r_end = current_row + r_end
-                            excel_c_start = c_start + 1
-                            excel_c_end = c_end + 1
-                            
-                            # Extract text spans within cell rect
-                            spans_in_cell = []
-                            for block in page_dict.get("blocks", []):
-                                if block.get("type") == 0:
-                                    for line in block.get("lines", []):
-                                        for span in line.get("spans", []):
-                                            sx0, sy0, sx1, sy1 = span.get("bbox", (0,0,0,0))
-                                            cx = (sx0 + sx1) / 2.0
-                                            cy = (sy0 + sy1) / 2.0
-                                            if (x0 - 5 <= cx <= x1 + 5) and (y0 - 5 <= cy <= y1 + 5):
-                                                spans_in_cell.append(span)
-                                                
-                            spans_in_cell.sort(key=lambda s: (s["bbox"][1], s["bbox"][0]))
-                            
-                            # Build text value
-                            chunks = []
-                            if spans_in_cell:
-                                curr_sy = spans_in_cell[0]["bbox"][1]
-                                line_text = []
-                                for s in spans_in_cell:
-                                    stext = s.get("text", "")
-                                    if not stext: continue
-                                    if abs(s["bbox"][1] - curr_sy) > 4.0:
-                                        if line_text:
-                                            chunks.append(" ".join(line_text))
-                                        line_text = [stext]
-                                        curr_sy = s["bbox"][1]
-                                    else:
-                                        line_text.append(stext)
-                                if line_text:
-                                    chunks.append(" ".join(line_text))
-                            cell_text = "\n".join(chunks).strip()
-                            
-                            # Fallback to grid extraction text if coordinate search yielded empty result
-                            if not cell_text and tab.grid_text and r_idx < len(tab.grid_text) and c_idx < len(tab.grid_text[r_idx]):
-                                cell_text = str(tab.grid_text[r_idx][c_idx] or "").strip()
-                                
-                            target_cell = ws.cell(row=excel_r_start, column=excel_c_start)
-                            target_cell.value = format_cell_value(cell_text)
-                            
-                            # Apply Alignment
-                            cell_w = x1 - x0
-                            span_center = (spans_in_cell[0]["bbox"][0] + spans_in_cell[-1]["bbox"][2]) / 2.0 if spans_in_cell else 0
-                            cell_center = (x0 + x1) / 2.0
-                            h_align = "left"
-                            if cell_w > 0 and spans_in_cell:
-                                diff_pct = abs(span_center - cell_center) / cell_w
-                                if diff_pct < 0.08:
-                                    h_align = "center"
-                                elif (x1 - spans_in_cell[-1]["bbox"][2]) / cell_w < 0.12:
-                                    h_align = "right"
-                                    
-                            target_cell.alignment = Alignment(horizontal=h_align, vertical="center", wrap_text=True)
-                            
-                            # Check background fill color (using get_hex_from_color safety wrapper)
-                            bg_color = None
-                            for d in drawings:
-                                draw_fill = d.get("fill")
-                                if draw_fill:
-                                    rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
-                                    d_w = rx1 - rx0
-                                    d_h = ry1 - ry0
-                                    if d_w >= 0.8 * p_w and d_h >= 0.8 * p_h:
-                                        continue
-                                    if d_w > 1.25 * cell_w or d_h > 1.25 * (y1 - y0):
-                                        continue
-                                    ix0 = max(x0, rx0)
-                                    iy0 = max(y0, ry0)
-                                    ix1 = min(x1, rx1)
-                                    iy1 = min(y1, ry1)
-                                    if ix1 > ix0 and iy1 > iy0:
-                                        if ((ix1 - ix0) * (iy1 - iy0)) / ((x1 - x0) * (y1 - y0)) >= 0.75:
-                                            bg_color = get_hex_from_color(draw_fill)
-                                            # Skip pure white fills
-                                            if bg_color.upper() == "FFFFFFFF":
-                                                bg_color = None
-                                            else:
-                                                break
-                                                
-                            if bg_color:
-                                target_cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
-                                
-                            # Border stroke mapping
-                            thick_threshold = 2.0
-                            has_l, has_r, has_t, has_b = False, False, False, False
-                            style_l, style_r, style_t, style_b = 'thin', 'thin', 'thin', 'thin'
-                            color_l, color_r, color_t, color_b = 'B0B0B0', 'B0B0B0', 'B0B0B0', 'B0B0B0'
-                            
-                            for d in drawings:
-                                pts = d.get("rect", (0, 0, 0, 0))
-                                stroke_c = d.get("color")
-                                if stroke_c and d.get("type") in ["l", "rect"]:
-                                    hex_c_full = get_hex_from_color(stroke_c)
-                                    hex_c = hex_c_full[2:]  # Remove the alpha channel for openpyxl Side
-                                    
-                                    width = d.get("width", 1.0)
-                                    style = 'medium' if width >= thick_threshold else 'thin'
-                                    
-                                    if abs(pts[0] - x0) <= 2 and (y0 - 2 <= pts[1] <= y1 + 2 or y0 - 2 <= pts[3] <= y1 + 2):
-                                        has_l = True; style_l = style; color_l = hex_c
-                                    elif abs(pts[0] - x1) <= 2 and (y0 - 2 <= pts[1] <= y1 + 2 or y0 - 2 <= pts[3] <= y1 + 2):
-                                        has_r = True; style_r = style; color_r = hex_c
-                                    elif abs(pts[1] - y0) <= 2 and (x0 - 2 <= pts[0] <= x1 + 2 or x0 - 2 <= pts[2] <= x1 + 2):
-                                        has_t = True; style_t = style; color_t = hex_c
-                                    elif abs(pts[1] - y1) <= 2 and (x0 - 2 <= pts[0] <= x1 + 2 or x0 - 2 <= pts[2] <= x1 + 2):
-                                        has_b = True; style_b = style; color_b = hex_c
-                                        
-                            b_left = Side(style=style_l, color=color_l) if has_l else Side(style='thin', color='C0C0C0')
-                            b_right = Side(style=style_r, color=color_r) if has_r else Side(style='thin', color='C0C0C0')
-                            b_top = Side(style=style_t, color=color_t) if has_t else Side(style='thin', color='C0C0C0')
-                            b_bottom = Side(style=style_b, color=color_b) if has_b else Side(style='thin', color='C0C0C0')
-                            
-                            target_cell.border = Border(left=b_left, right=b_right, top=b_top, bottom=b_bottom)
-                            
-                            # Merged boundaries styling
-                            if excel_r_end > excel_r_start or excel_c_end > excel_c_start:
-                                merges_to_apply.append((excel_r_start, excel_c_start, excel_r_end, excel_c_end, b_left, b_right, b_top, b_bottom))
-                            
-                            # Text Font Styling
-                            font_n = "Nirmala UI" if contains_deva(cell_text) else "Calibri"
-                            font_sz = 11
-                            font_c = "FF000000"
-                            is_bold = False
-                            is_italic = False
-                            
-                            if spans_in_cell:
-                                ref_span = spans_in_cell[0]
-                                font_sz = int(ref_span.get("size", 11.0))
-                                flags = ref_span.get("flags", 0)
-                                color_int = ref_span.get("color", 0)
-                                color_r = (color_int >> 16) & 255
-                                color_g = (color_int >> 8) & 255
-                                color_b = color_int & 255
-                                font_c = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
-                                
-                                font_name_lower = ref_span.get("font", "").lower()
-                                is_bold = bool(flags & 16) or any(x in font_name_lower for x in ["bold", "black", "heavy", "semibold"])
-                                is_italic = bool(flags & 2) or any(x in font_name_lower for x in ["italic", "oblique"])
-                                
-                            if bg_color:
-                                r_val = int(bg_color[2:4], 16)
-                                g_val = int(bg_color[4:6], 16)
-                                b_val = int(bg_color[6:8], 16)
-                                bg_brightness = (r_val * 299 + g_val * 587 + b_val * 114) / 1000
-                                
-                                f_r = int(font_c[2:4], 16)
-                                f_g = int(font_c[4:6], 16)
-                                f_b = int(font_c[6:8], 16)
-                                font_brightness = (f_r * 299 + f_g * 587 + f_b * 114) / 1000
-                                
-                                if bg_brightness < 120 and font_brightness < 150:
-                                    font_c = "FFFFFFFF"
-                                elif bg_brightness > 200 and font_brightness > 200:
-                                    font_c = "FF000000"
-                                    
-                            target_cell.font = Font(name=font_n, size=font_sz, bold=is_bold, italic=is_italic, color=font_c)
-                            max_font_size = max(max_font_size, font_sz)
-                            
-                    ws.row_dimensions[current_row + r_idx].height = max_font_size + 6
-                    
-                # Apply cell merges inside the sheet
-                for m_start_r, m_start_c, m_end_r, m_end_c, b_l, b_r, b_t, b_b in merges_to_apply:
-                    try:
-                        ws.merge_cells(start_row=m_start_r, start_column=m_start_c, end_row=m_end_r, end_column=m_end_c)
-                        style_merged_cells_borders(ws, m_start_r, m_start_c, m_end_r, m_end_c, b_l, b_r, b_t, b_b)
-                    except Exception:
-                        pass
-                        
-                # Keep page_base_row instead of incrementing within table loops
-                pass
-                
-            # Freeze table top row
-            if ws.max_row > 2:
-                ws.freeze_panes = "A2"
-                
-            # Place free-text spans (not overlapping tables)
-            if free_spans:
-                max_cols = max(8, sum(len(t.rows[0].cells) for t in table_list if t.rows))
-                
-                for line_objs in lines_free:
-                    line_objs.sort(key=lambda s: s["bbox"][0])
-                    line_text = " ".join(s.get("text", "").strip() for s in line_objs if s.get("text", "").strip())
-                    if not line_text:
-                        continue
-                        
-                    line_y = round(line_objs[0]["bbox"][1], 1)
-                    line_row = page_base_row + find_coord_index(page_table_sorted_y, line_y)
-                    
-                    ws.merge_cells(start_row=line_row, start_column=1, end_row=line_row, end_column=max_cols)
-                    free_cell = ws.cell(row=line_row, column=1)
-                    free_cell.value = format_cell_value(line_text)
-                    
-                    ref_s = line_objs[0]
-                    f_name = "Nirmala UI" if contains_deva(line_text) else "Calibri"
-                    f_sz = int(ref_s.get("size", 11))
-                    f_flags = ref_s.get("flags", 0)
-                    
-                    color_int = ref_s.get("color", 0)
-                    color_r = (color_int >> 16) & 255
-                    color_g = (color_int >> 8) & 255
-                    color_b = color_int & 255
-                    f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
-                    
-                    font_nm_lower = ref_s.get("font", "").lower()
-                    f_bold = bool(f_flags & 16) or any(x in font_nm_lower for x in ["bold", "black", "heavy", "semibold"])
-                    f_italic = bool(f_flags & 2) or any(x in font_nm_lower for x in ["italic", "oblique"])
-                    
-                    free_cell.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
-                    free_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                    ws.row_dimensions[line_row].height = f_sz + 6
-
-            # Increment current_row after free spans placement
-            current_row = ws.max_row + 2
-
-            # Extract and embed page images/logos
+            # 3. Add Image components
             try:
                 img_list = page.get_images()
-                image_base_row = page_base_row
-
-                for img_info in img_list[:12]:  # Cap to max 12 images per page to prevent bloated sheet
+                for img_info in img_list[:12]:
                     xref = img_info[0]
                     rects = page.get_image_rects(xref)
                     if rects:
                         rx0, ry0, rx1, ry1 = rects[0]
                         dw = rx1 - rx0
                         dh = ry1 - ry0
-                        
-                        # Skip tiny noise rects and page-spanning background visuals
-                        if dw < 15 or dh < 15:
+                        # Skip page background or tiny icons
+                        if dw < 15 or dh < 15 or (dw > p_w * 0.9 and dh > p_h * 0.9):
                             continue
-                        if dw >= 0.8 * p_w and dh >= 0.8 * p_h:
+                        page_elements.append({
+                            "type": "image",
+                            "bbox": (rx0, ry0, rx1, ry1),
+                            "y0": ry0,
+                            "data": (xref, dw, dh)
+                        })
+            except Exception as e_img_parse:
+                print("Failed to parse page images:", e_img_parse)
+                
+            # Sort page elements by top coordinate Y (visually from top to bottom)
+            page_elements.sort(key=lambda x: x["y0"])
+            
+            # Write components to coordinate grid sequentially
+            for elem in page_elements:
+                if elem["type"] == "text_block":
+                    valid_lines = elem["data"]
+                    for line in valid_lines:
+                        spans = sorted(line.get("spans", []), key=lambda s: s["bbox"][0])
+                        line_text = " ".join(clean_hindi_text(s.get("text", "")).strip() for s in spans if s.get("text", "").strip())
+                        if not line_text:
                             continue
                             
+                        ref_s = spans[0]
+                        f_name = "Nirmala UI" if contains_deva(line_text) else "Calibri"
+                        f_sz = int(ref_s.get("size", 11))
+                        f_flags = ref_s.get("flags", 0)
+                        
+                        color_int = ref_s.get("color", 0)
+                        color_r = (color_int >> 16) & 255
+                        color_g = (color_int >> 8) & 255
+                        color_b = color_int & 255
+                        f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
+                        
+                        font_nm_lower = ref_s.get("font", "").lower()
+                        f_bold = bool(f_flags & 16) or any(x in font_nm_lower for x in ["bold", "black", "heavy", "semibold"])
+                        f_italic = bool(f_flags & 2) or any(x in font_nm_lower for x in ["italic", "oblique"])
+                        
+                        table_cols_counts = [len(t.rows[0].cells) for t in table_list if t.rows]
+                        max_cols_val = max(8, max(table_cols_counts) if table_cols_counts else 8)
+                        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols_val)
+                        
+                        cell_obj = ws.cell(row=current_row, column=1)
+                        cell_obj.value = format_cell_value(line_text)
+                        cell_obj.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
+                        cell_obj.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                        ws.row_dimensions[current_row].height = f_sz + 6
+                        
+                        current_row += 1
+                        
+                    # Add space after free text block
+                    current_row += 1
+                    
+                elif elem["type"] == "table":
+                    tab = elem["data"]
+                    
+                    x_coords = set()
+                    for r in tab.rows:
+                        for cell in r.cells:
+                            if cell:
+                                x_coords.add(round(cell[0], 1))
+                                x_coords.add(round(cell[2], 1))
+                    sorted_x = sorted(list(x_coords))
+                    merged_x = []
+                    for val in sorted_x:
+                        if not merged_x or val - merged_x[-1] > 2.0:
+                            merged_x.append(val)
+                        else:
+                            merged_x[-1] = (merged_x[-1] + val) / 2.0
+                    sorted_x = merged_x
+                    
+                    if len(sorted_x) < 2:
+                        tx0, ty0, tx1, ty1 = tab.bbox
+                        sorted_x = [tx0 + i * (tx1 - tx0)/max(1, tab.col_count) for i in range(tab.col_count + 1)]
+                        
+                    y_coords = set()
+                    for r in tab.rows:
+                        y_coords.add(round(r.bbox[1], 1))
+                        y_coords.add(round(r.bbox[3], 1))
+                    sorted_y = sorted(list(y_coords))
+                    merged_y = []
+                    for val in sorted_y:
+                        if not merged_y or val - merged_y[-1] > 2.0:
+                            merged_y.append(val)
+                        else:
+                            merged_y[-1] = (merged_y[-1] + val) / 2.0
+                    sorted_y = merged_y
+                    
+                    if len(sorted_y) < 2:
+                        tx0, ty0, tx1, ty1 = tab.bbox
+                        sorted_y = [ty0 + i * (ty1 - ty0)/max(1, tab.row_count) for i in range(tab.row_count + 1)]
+                        
+                    for c_idx_val in range(len(sorted_x) - 1):
+                        col_letter = get_column_letter(c_idx_val + 1)
+                        col_width_excel = (sorted_x[c_idx_val+1] - sorted_x[c_idx_val]) / 7.5
+                        current_w = ws.column_dimensions[col_letter].width or 8
+                        ws.column_dimensions[col_letter].width = max(current_w, max(6.0, min(col_width_excel, 60.0)))
+                        
+                    merges_to_apply = []
+                    table_rows_written = len(sorted_y) - 1
+                    
+                    for r_idx, r in enumerate(tab.rows):
+                        max_font_size = 11
+                        for c_idx, cell in enumerate(r.cells):
+                            if cell:
+                                x0, y0, x1, y1 = cell
+                                c_start = find_coord_index(sorted_x, round(x0, 1))
+                                c_end = find_coord_index(sorted_x, round(x1, 1)) - 1
+                                r_start = find_coord_index(sorted_y, round(y0, 1))
+                                r_end = find_coord_index(sorted_y, round(y1, 1)) - 1
+                                
+                                c_start = max(0, min(c_start, len(sorted_x) - 2))
+                                c_end = max(c_start, min(c_end, len(sorted_x) - 2))
+                                r_start = max(0, min(r_start, len(sorted_y) - 2))
+                                r_end = max(r_start, min(r_end, len(sorted_y) - 2))
+                                
+                                excel_r_start = current_row + r_start
+                                excel_r_end = current_row + r_end
+                                excel_c_start = c_start + 1
+                                excel_c_end = c_end + 1
+                                
+                                raw_cell_text = ""
+                                if tab.grid_text and r_idx < len(tab.grid_text) and c_idx < len(tab.grid_text[r_idx]):
+                                    raw_cell_text = str(tab.grid_text[r_idx][c_idx] or "").strip()
+                                cell_text = clean_hindi_text(raw_cell_text)
+                                
+                                spans_in_cell = []
+                                for block in page_dict.get("blocks", []):
+                                    if block.get("type") == 0:
+                                        for line in block.get("lines", []):
+                                            for span in line.get("spans", []):
+                                                sx0, sy0, sx1, sy1 = span.get("bbox", (0,0,0,0))
+                                                cx = (sx0 + sx1) / 2.0
+                                                cy = (sy0 + sy1) / 2.0
+                                                if (x0 - 2 <= cx <= x1 + 2) and (y0 - 2 <= cy <= y1 + 2):
+                                                    spans_in_cell.append(span)
+                                spans_in_cell.sort(key=lambda s: (s["bbox"][1], s["bbox"][0]))
+                                
+                                target_cell = ws.cell(row=excel_r_start, column=excel_c_start)
+                                target_cell.value = format_cell_value(cell_text)
+                                
+                                cell_w = x1 - x0
+                                span_center = (spans_in_cell[0]["bbox"][0] + spans_in_cell[-1]["bbox"][2]) / 2.0 if spans_in_cell else 0
+                                cell_center = (x0 + x1) / 2.0
+                                h_align = "left"
+                                if cell_w > 0 and spans_in_cell:
+                                    diff_pct = abs(span_center - cell_center) / cell_w
+                                    if diff_pct < 0.08:
+                                        h_align = "center"
+                                    elif (x1 - spans_in_cell[-1]["bbox"][2]) / cell_w < 0.12:
+                                        h_align = "right"
+                                target_cell.alignment = Alignment(horizontal=h_align, vertical="center", wrap_text=True)
+                                
+                                bg_color = None
+                                for d in drawings:
+                                    draw_fill = d.get("fill")
+                                    if draw_fill:
+                                        rx0, ry0, rx1, ry1 = d.get("rect", (0, 0, 0, 0))
+                                        d_w = rx1 - rx0
+                                        d_h = ry1 - ry0
+                                        
+                                        is_border = True
+                                        items = d.get("items", [])
+                                        for item in items:
+                                            if item[0] == "re":
+                                                r_rect = item[1]
+                                                if (r_rect.x1 - r_rect.x0) >= 2.0 and (r_rect.y1 - r_rect.y0) >= 2.0:
+                                                    is_border = False
+                                                    break
+                                            elif item[0] in ["p", "l", "c", "qu"]:
+                                                if d_w >= 2.0 and d_h >= 2.0:
+                                                    is_border = False
+                                                    break
+                                        if items and is_border:
+                                            continue
+                                        if d_w < 2.0 or d_h < 2.0:
+                                            continue
+                                            
+                                        if d_w >= 0.8 * p_w and d_h >= 0.8 * p_h:
+                                            continue
+                                        if d_w > 1.25 * cell_w or d_h > 1.25 * (y1 - y0):
+                                            continue
+                                            
+                                        ix0 = max(x0, rx0)
+                                        iy0 = max(y0, ry0)
+                                        ix1 = min(x1, rx1)
+                                        iy1 = min(y1, ry1)
+                                        if ix1 > ix0 and iy1 > iy0:
+                                            if ((ix1 - ix0) * (iy1 - iy0)) / ((x1 - x0) * (y1 - y0)) >= 0.75:
+                                                bg_color = get_hex_from_color(draw_fill)
+                                                if bg_color.upper() == "FFFFFFFF":
+                                                    bg_color = None
+                                                else:
+                                                    break
+                                if bg_color:
+                                    target_cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
+                                    
+                                thick_threshold = 2.0
+                                has_l, has_r, has_t, has_b = False, False, False, False
+                                style_l, style_r, style_t, style_b = 'thin', 'thin', 'thin', 'thin'
+                                color_l, color_r, color_t, color_b = 'B0B0B0', 'B0B0B0', 'B0B0B0', 'B0B0B0'
+                                
+                                for d in drawings:
+                                    pts = d.get("rect", (0, 0, 0, 0))
+                                    stroke_c = d.get("color")
+                                    if stroke_c and d.get("type") in ["l", "rect"]:
+                                        hex_c_full = get_hex_from_color(stroke_c)
+                                        hex_c = hex_c_full[2:]
+                                        width = d.get("width", 1.0)
+                                        style = 'medium' if width >= thick_threshold else 'thin'
+                                        if abs(pts[0] - x0) <= 2 and (y0 - 2 <= pts[1] <= y1 + 2 or y0 - 2 <= pts[3] <= y1 + 2):
+                                            has_l = True; style_l = style; color_l = hex_c
+                                        elif abs(pts[0] - x1) <= 2 and (y0 - 2 <= pts[1] <= y1 + 2 or y0 - 2 <= pts[3] <= y1 + 2):
+                                            has_r = True; style_r = style; color_r = hex_c
+                                        elif abs(pts[1] - y0) <= 2 and (x0 - 2 <= pts[0] <= x1 + 2 or x0 - 2 <= pts[2] <= x1 + 2):
+                                            has_t = True; style_t = style; color_t = hex_c
+                                        elif abs(pts[1] - y1) <= 2 and (x0 - 2 <= pts[0] <= x1 + 2 or x0 - 2 <= pts[2] <= x1 + 2):
+                                            has_b = True; style_b = style; color_b = hex_c
+                                            
+                                b_left = Side(style=style_l, color=color_l) if has_l else Side(style='thin', color='C0C0C0')
+                                b_right = Side(style=style_r, color=color_r) if has_r else Side(style='thin', color='C0C0C0')
+                                b_top = Side(style=style_t, color=color_t) if has_t else Side(style='thin', color='C0C0C0')
+                                b_bottom = Side(style=style_b, color=color_b) if has_b else Side(style='thin', color='C0C0C0')
+                                target_cell.border = Border(left=b_left, right=b_right, top=b_top, bottom=b_bottom)
+                                
+                                if excel_r_end > excel_r_start or excel_c_end > excel_c_start:
+                                    merges_to_apply.append((excel_r_start, excel_c_start, excel_r_end, excel_c_end, b_left, b_right, b_top, b_bottom))
+                                    
+                                font_n = "Nirmala UI" if contains_deva(cell_text) else "Calibri"
+                                font_sz = 11
+                                font_c = "FF000000"
+                                is_bold = False
+                                is_italic = False
+                                
+                                if spans_in_cell:
+                                    ref_span = spans_in_cell[0]
+                                    font_sz = int(ref_span.get("size", 11.0))
+                                    flags = ref_span.get("flags", 0)
+                                    color_int = ref_span.get("color", 0)
+                                    color_r = (color_int >> 16) & 255
+                                    color_g = (color_int >> 8) & 255
+                                    color_b = color_int & 255
+                                    font_c = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
+                                    
+                                    font_name_lower = ref_span.get("font", "").lower()
+                                    is_bold = bool(flags & 16) or any(x in font_name_lower for x in ["bold", "black", "heavy", "semibold"])
+                                    is_italic = bool(flags & 2) or any(x in font_name_lower for x in ["italic", "oblique"])
+                                    
+                                if bg_color:
+                                    r_val = int(bg_color[2:4], 16)
+                                    g_val = int(bg_color[4:6], 16)
+                                    b_val = int(bg_color[6:8], 16)
+                                    bg_brightness = (r_val * 299 + g_val * 587 + b_val * 114) / 1000
+                                    
+                                    f_r = int(font_c[2:4], 16)
+                                    f_g = int(font_c[4:6], 16)
+                                    f_b = int(font_c[6:8], 16)
+                                    font_brightness = (f_r * 299 + f_g * 587 + f_b * 114) / 1000
+                                    
+                                    if bg_brightness < 120 and font_brightness < 150:
+                                        font_c = "FFFFFFFF"
+                                    elif bg_brightness > 200 and font_brightness > 200:
+                                        font_c = "FF000000"
+                                        
+                                target_cell.font = Font(name=font_n, size=font_sz, bold=is_bold, italic=is_italic, color=font_c)
+                                max_font_size = max(max_font_size, font_sz)
+                                
+                        ws.row_dimensions[current_row + r_idx].height = max_font_size + 6
+                        
+                    for m_start_r, m_start_c, m_end_r, m_end_c, b_l, b_r, b_t, b_b in merges_to_apply:
+                        try:
+                            ws.merge_cells(start_row=m_start_r, start_column=m_start_c, end_row=m_end_r, end_column=m_end_c)
+                            style_merged_cells_borders(ws, m_start_r, m_start_c, m_end_r, m_end_c, b_l, b_r, b_t, b_b)
+                        except Exception:
+                            pass
+                            
+                    current_row += table_rows_written
+                    current_row += 1
+                    
+                elif elem["type"] == "image":
+                    xref, dw, dh = elem["data"]
+                    rx0, ry0, rx1, ry1 = elem["bbox"]
+                    try:
                         base_img = doc.extract_image(xref)
                         if base_img:
                             img_bytes = base_img["image"]
                             img_ext = base_img["ext"]
-                            
-                            # Create a unique temp file name
                             temp_img_name = f"obj_img_{page_num}_{xref}_{uuid.uuid4().hex[:6]}.{img_ext}"
                             temp_img_path = os.path.join(temp_dir, temp_img_name)
-                            
                             with open(temp_img_path, "wb") as f_img:
                                 f_img.write(img_bytes)
-                                
                             temp_images_created.append(temp_img_path)
                             
                             from openpyxl.drawing.image import Image as OpenpyxlImage
                             ox_img = OpenpyxlImage(temp_img_path)
-                            # Convert points (1/72 inch) to pixels (roughly 1.333 ratio at 96 DPI)
                             ox_img.width = int(dw * 1.333)
                             ox_img.height = int(dh * 1.333)
                             
-                            # Find target cell anchor
-                            cell_row, cell_col = get_cell_coord(rx0, ry0, page_table_sorted_x, page_table_sorted_y, image_base_row)
-                            col_letter = get_column_letter(cell_col)
-                            ox_img.anchor = f"{col_letter}{cell_row}"
-                            
+                            col_click = 1
+                            if rx0 > p_w * 0.7:
+                                col_click = 5
+                            elif rx0 > p_w * 0.3:
+                                col_click = 3
+                            col_letter = get_column_letter(col_click)
+                            ox_img.anchor = f"{col_letter}{current_row}"
                             ws.add_image(ox_img)
-            except Exception as e_img:
-                print("Failed to embed image assets in Excel:", e_img)
+                            
+                            rows_needed = int(dh // 15) + 1
+                            for r_off in range(rows_needed):
+                                ws.row_dimensions[current_row + r_off].height = 15
+                            current_row += rows_needed
+                            current_row += 1
+                    except Exception as e_img:
+                        print("Failed to embed image assets in Excel:", e_img)
                     
         if ws_created and "Sheet" in wb.sheetnames:
             del wb["Sheet"]
