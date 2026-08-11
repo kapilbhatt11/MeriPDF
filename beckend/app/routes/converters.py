@@ -515,6 +515,66 @@ def get_hex_from_color(color_val) -> str:
     b = max(0, min(255, b))
     return f"FF{r:02x}{g:02x}{b:02x}"
 
+def merge_block_lines_by_baseline(lines):
+    if not lines:
+        return []
+    
+    # Sort lines by top coordinate Y0 first
+    sorted_lines = sorted(lines, key=lambda l: l.get("bbox", (0,0,0,0))[1])
+    
+    grouped_lines = []
+    current_group = []
+    last_y0 = None
+    
+    for l in sorted_lines:
+        y0 = l.get("bbox", (0,0,0,0))[1]
+        if last_y0 is None:
+            current_group.append(l)
+            last_y0 = y0
+        elif abs(y0 - last_y0) < 3.0: # Baseline tolerance of 3 points
+            current_group.append(l)
+        else:
+            grouped_lines.append(current_group)
+            current_group = [l]
+            last_y0 = y0
+    if current_group:
+        grouped_lines.append(current_group)
+        
+    merged_lines = []
+    for group in grouped_lines:
+        if len(group) == 1:
+            line = group[0]
+            if "spans" in line:
+                line["spans"].sort(key=lambda s: s.get("bbox", (0,0,0,0))[0])
+            merged_lines.append(line)
+        else:
+            all_spans = []
+            min_x0 = float('inf')
+            min_y0 = float('inf')
+            max_x1 = float('-inf')
+            max_y1 = float('-inf')
+            
+            for line in group:
+                for s in line.get("spans", []):
+                    all_spans.append(s)
+                lx0, ly0, lx1, ly1 = line.get("bbox", (0,0,0,0))
+                min_x0 = min(min_x0, lx0)
+                min_y0 = min(min_y0, ly0)
+                max_x1 = max(max_x1, lx1)
+                max_y1 = max(max_y1, ly1)
+                
+            # Sort spans left-to-right
+            all_spans.sort(key=lambda s: s.get("bbox", (0,0,0,0))[0])
+            
+            merged_line = {
+                "bbox": (min_x0, min_y0, max_x1, max_y1),
+                "spans": all_spans
+            }
+            merged_lines.append(merged_line)
+            
+    merged_lines.sort(key=lambda l: l.get("bbox", (0,0,0,0))[1])
+    return merged_lines
+
 def sort_blocks_reading_order(blocks):
     """
     Sorts layout blocks visually using a layout-aware columns/rows analyzer.
@@ -546,13 +606,10 @@ def sort_blocks_reading_order(blocks):
         
     sorted_text_blocks = sorted(text_blocks, key=cmp_to_key(compare_blocks))
     
-    # Sort lines inside each block and spans inside each line
+    # Sort and merge lines inside each block
     for b in sorted_text_blocks:
         if "lines" in b:
-            b["lines"].sort(key=lambda l: l["bbox"][1])
-            for l in b["lines"]:
-                if "spans" in l:
-                    l["spans"].sort(key=lambda s: s["bbox"][0])
+            b["lines"] = merge_block_lines_by_baseline(b["lines"])
                     
     return sorted_text_blocks + other_blocks
 
@@ -1731,14 +1788,14 @@ async def pdf_to_excel(
                 "\u1b43": "\u0915\u094d\u0937",  # ᭃ -> क्ष
                 "\u1b4d": "\u0915\u094d",  # ᭍ -> क्
                 "\u1b6b": "\u0936\u094d",  # ᭫ -> श्
-                "\u1b4f": "\u0917\u094d\u0928",  # ᭏ -> ग्न
+                "\u1b4f": "\u0917\u094d",  # ᭏ -> ग् (changed from ग्न to ग्)
                 "\u1b54": "\u091c\u094d\u092f",  # ᭔ -> ज्य
                 "\u1b5b": "\u0923\u094d",  # ᭛ -> ण्
                 "\u1b5c": "\u0924\u094d",  # ᭜ -> त्
                 "\u1b5f": "\u0927\u094d",    # ᭟ -> ध्
                 "\u1b60": "\u0928\u094d",  # ᭠ -> न्
                 "\u1b61": "\u092a\u094d",  # ᭡ -> प्
-                "\u1b63": "\u092c\u094d\u0932\u094d\u092f\u0942", # ᭣ -> ब्ल्यू
+                "\u1b63": "\u094d\u092c",  # ᭣ -> ्ब्
                 "\u1b64": "\u092d\u094d",  # ᭤ -> भ्
                 "\u1b65": "\u092e\u094d",  # ᭥ -> म्
                 "\u1b68": "\u0932\u094d",  # ᭨ -> ल्
@@ -1750,7 +1807,7 @@ async def pdf_to_excel(
                 "\u1ba2": "\u0924\u094d\u0930",  # ᮢ -> त्र
                 "\u1ba4": "\u0926\u094d\u0930",  # ᮤ -> द्र
                 "\u1ba7": "\u092a\u094d\u0930",  # ᮧ -> प्र
-                "\u1c5f": "\u0949",       # ᱟ -> ॉ
+                "\u1c5f": "\u0939\u0941",      # ᱟ -> हु (changed from ॉ to hu)
                 "\u1c6b": "\u0924\u094d\u0924",  # ᱫ -> त्त
                 "\u1c6d": "\u0940\u0902",  # ᱭ -> ीं
                 "\u1c76": "\u0947\u0902",  # ᱶ -> ें
@@ -1761,7 +1818,7 @@ async def pdf_to_excel(
                 "\u1cc7": "\u0926\u094d\u0935",  # ᳇ -> द्व
                 "\u1ccd": "\u0926\u094d\u0927",  # ᳍ -> द्ध
                 "\u00c8": "\u0915\u094d",  # È -> क्
-                "\u00a2": "\u0915\u094d\u0937",  # ¢ -> क्ष
+                "\u00a2": "\u0915\u094d\u0937\u093e", # ¢ -> क्षा
                 
                 # Additional mapped characters
                 "\u1cf1": "\u0940",       # ᳱ -> ी
@@ -1769,15 +1826,32 @@ async def pdf_to_excel(
                 "\u1cf0": "\u093f",       # ᳰ -> ि
                 "\u1cf2": "\u093f",       # ᳲ -> ि
                 "\u1cf3": "\u094d\u0930",  # ᳳ -> ्र
+                
+                # Missing glyph maps added in Round 6
+                "\u1cd9": "\u092a\u094d\u0924",  # ᳙ -> प्त (U+1CD9)
+                "\u1b6c": "\u0937\u094d\u0920",  # ᭬ -> ष्ठ (U+1B6C)
+                "\u1c8b": "\u0913\u0902",      # ᲋ -> ओं (U+1C8B)
+                "\u1cb9": "\u0920\u094d\u092f",  # Ჹ -> ठ्य (U+1CB9)
+                "\u1c68": "\u0930\u0942",      # ᱨ -> रू (U+1C68)
+                "\u0238": "\u0930\u094d\u0924\u0940", # ȸ -> र्ती (U+0238)
+                "\u1cdf": "\u0936\u094d\u091a",  # ᳟ -> श्च (U+1CDF)
             }
             for k, v in replacements.items():
                 text = text.replace(k, v)
                 
             # 2. Contextual rules
             import re
-            text = re.sub("([\u0900-\u097F])\u1c6e", "र्\\1ी", text) # C + ᱮ -> र् + C + ी
-            text = re.sub("([\u0900-\u097F])\u1c77", "र्\\1े", text) # C + ᱷ -> र् + C + े
-            text = re.sub("([\u0905-\u093F\u0940-\u094Dक-ह][\u093e-\u094c\u0902]?)ᭅ", "र्\\1", text) # C + ᭅ -> र् + C
+            
+            # Vedic reph symbols
+            text = re.sub("\u1cf6\s*([\u0900-\u097F])", "र्\\1", text) # ᳶ + C -> र् + C
+            text = re.sub("\u1cf3\s*([\u0900-\u097F])", "र्\\1", text) # ᳳ + C -> र् + C
+            
+            text = re.sub("([\u0900-\u097F])\s*\u1c6e", "र्\\1ी", text) # C + ᱮ -> र् + C + ी
+            text = re.sub("([\u0900-\u097F])\s*\u1c77", "र्\\1े", text) # C + ᱷ -> र् + C + े
+            text = re.sub("([\u0905-\u093F\u0940-\u094Dक-ह][\u093e-\u094c\u0902]?)\s*ᭅ", "र्\\1", text) # C + ᭅ -> र् + C
+            
+            # Restore half consonants followed by spaces
+            text = re.sub(r"\u094d\s+", "\u094d", text)
             
             # 3. Visual vowel reordering: ि followed by consonant cluster -> cluster + ि
             text = re.sub("\u093F([क-ह](?:\u094D[क-ह])*)", "\\1\u093F", text)
@@ -1815,9 +1889,39 @@ async def pdf_to_excel(
                 "परीक्षार्थयों": "परीक्षार्थियों",
                 "अ᭤यᳶथयᲂ": "अभ्यर्थियों",
                 "परीᭃाᳶथयᲂ": "परीक्षार्थियों",
+                
+                # New contextual hacks added in Round 6
+                "भतें ᱮ": "भर्ती",
+                "भतेंᱮ": "भर्ती",
+                "भतेर्ंी": "भर्ती",
+                "दशिानदिश ᱷ": "दिशानिर्देश",
+                "दशिानदिश": "दिशानिर्देश",
+                "विनििें ᳟त": "विनिश्चित",
+                "विनििें᳟त": "विनिश्चित",
+                "विनििें श्चत": "विनिश्चित",
+                "विनििेंश्चत": "विनिश्चित",
+                "वनिश्चिति": "विनिश्चित",
+                "पृष्ठ ठ": "पृष्ठ",
+                "क्₹": "क्र.",
+                "क् ₹": "क्र.",
+                "पालीअ": "पाली",
+                "पटवारी ᭅ": "पटवारी",
+                "समर्ये": "समय",
+                "नर्दि श": "निर्देश",
+                "नर्दि": "निर्देश",
+                "नधिार्ेंरति": "निर्धारित",
+                "नधिरिति": "निर्धारित",
+                "प्₹": "प्र.",
+                "प् ₹": "प्र.",
             }
             for k, v in word_hacks.items():
                 text = text.replace(k, v)
+                
+            # Strip remaining visual glyph diacritics
+            text = text.replace("\u1b45", "") # Remove left-over ᭅ
+            text = text.replace("\u1c77", "") # Remove left-over ᱷ
+            text = text.replace("\u1cdf", "") # Remove left-over ᳟
+            text = text.replace("\u1c6e", "") # Remove left-over ᱮ
             return text
 
         def normalize_margin_text(text: str) -> str:
@@ -1879,6 +1983,23 @@ async def pdf_to_excel(
                 except ValueError:
                     return text
             return text
+
+        def reconstruct_line_from_spans(spans):
+            if not spans:
+                return ""
+            sorted_spans = sorted(spans, key=lambda s: s.get("bbox", (0,0,0,0))[0])
+            line_raw = ""
+            for i, s in enumerate(sorted_spans):
+                txt = s.get("text", "")
+                if i > 0:
+                    prev_s = sorted_spans[i-1]
+                    prev_bbox = prev_s.get("bbox", (0,0,0,0))
+                    curr_bbox = s.get("bbox", (0,0,0,0))
+                    gap = curr_bbox[0] - prev_bbox[2]
+                    if gap >= 2.0 and not line_raw.endswith(" ") and not txt.startswith(" "):
+                        line_raw += " "
+                line_raw += txt
+            return clean_hindi_text(line_raw)
 
         # Helper to format borders for all merged cells
         def style_merged_cells_borders(ws, start_row, start_col, end_row, end_col, b_left, b_right, b_top, b_bottom):
@@ -2124,13 +2245,23 @@ async def pdf_to_excel(
             # Sort page elements by top coordinate Y (visually from top to bottom)
             page_elements.sort(key=lambda x: x["y0"])
             
+            # Detect if page has a top-left logo to prevent side-by-side text overlap
+            has_top_left_logo = False
+            logo_bottom_y = 0
+            for el in page_elements:
+                if el["type"] == "image":
+                    rx0, ry0, rx1, ry1 = el["bbox"]
+                    if ry0 < 60 and rx0 < 120:
+                        has_top_left_logo = True
+                        logo_bottom_y = max(logo_bottom_y, ry1)
+            
             # Write components to coordinate grid sequentially
             for elem in page_elements:
                 if elem["type"] == "text_block":
                     valid_lines = elem["data"]
                     for line in valid_lines:
-                        spans = sorted(line.get("spans", []), key=lambda s: s["bbox"][0])
-                        line_text = " ".join(clean_hindi_text(s.get("text", "")).strip() for s in spans if s.get("text", "").strip())
+                        spans = line.get("spans", [])
+                        line_text = reconstruct_line_from_spans(spans)
                         if not line_text:
                             continue
                             
@@ -2151,9 +2282,14 @@ async def pdf_to_excel(
                         
                         table_cols_counts = [len(t.rows[0].cells) for t in table_list if t.rows]
                         max_cols_val = max(8, max(table_cols_counts) if table_cols_counts else 8)
-                        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=max_cols_val)
                         
-                        cell_obj = ws.cell(row=current_row, column=1)
+                        start_col_val = 1
+                        if has_top_left_logo and line.get("bbox", (0,0,0,0))[1] < logo_bottom_y:
+                            start_col_val = 2
+                            
+                        ws.merge_cells(start_row=current_row, start_column=start_col_val, end_row=current_row, end_column=max_cols_val)
+                        
+                        cell_obj = ws.cell(row=current_row, column=start_col_val)
                         cell_obj.value = format_cell_value(line_text)
                         cell_obj.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
                         cell_obj.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -2232,11 +2368,6 @@ async def pdf_to_excel(
                                 excel_c_start = c_start + 1
                                 excel_c_end = c_end + 1
                                 
-                                raw_cell_text = ""
-                                if tab.grid_text and r_idx < len(tab.grid_text) and c_idx < len(tab.grid_text[r_idx]):
-                                    raw_cell_text = str(tab.grid_text[r_idx][c_idx] or "").strip()
-                                cell_text = clean_hindi_text(raw_cell_text)
-                                
                                 spans_in_cell = []
                                 for block in page_dict.get("blocks", []):
                                     if block.get("type") == 0:
@@ -2248,6 +2379,37 @@ async def pdf_to_excel(
                                                 if (x0 - 2 <= cx <= x1 + 2) and (y0 - 2 <= cy <= y1 + 2):
                                                     spans_in_cell.append(span)
                                 spans_in_cell.sort(key=lambda s: (s["bbox"][1], s["bbox"][0]))
+                                
+                                raw_cell_text = ""
+                                if tab.grid_text and r_idx < len(tab.grid_text) and c_idx < len(tab.grid_text[r_idx]):
+                                    raw_cell_text = str(tab.grid_text[r_idx][c_idx] or "").strip()
+                                
+                                if spans_in_cell:
+                                    # Group spans in cell by baseline (Y coord)
+                                    cell_lines = []
+                                    sorted_spans_by_y = sorted(spans_in_cell, key=lambda s: s.get("bbox", (0,0,0,0))[1])
+                                    current_y_group = []
+                                    last_y = None
+                                    for s in sorted_spans_by_y:
+                                        sy0 = s.get("bbox", (0,0,0,0))[1]
+                                        if last_y is None:
+                                            current_y_group.append(s)
+                                            last_y = sy0
+                                        elif abs(sy0 - last_y) < 3.0: # Baseline tolerance of 3 points
+                                            current_y_group.append(s)
+                                        else:
+                                            cell_lines.append(current_y_group)
+                                            current_y_group = [s]
+                                            last_y = sy0
+                                    if current_y_group:
+                                        cell_lines.append(current_y_group)
+                                        
+                                    reconstructed_lines = []
+                                    for line_spans in cell_lines:
+                                        reconstructed_lines.append(reconstruct_line_from_spans(line_spans))
+                                    cell_text = "\n".join(reconstructed_lines).strip()
+                                else:
+                                    cell_text = clean_hindi_text(raw_cell_text)
                                 
                                 target_cell = ws.cell(row=excel_r_start, column=excel_c_start)
                                 target_cell.value = format_cell_value(cell_text)
@@ -2415,14 +2577,20 @@ async def pdf_to_excel(
                             elif rx0 > p_w * 0.3:
                                 col_click = 3
                             col_letter = get_column_letter(col_click)
-                            ox_img.anchor = f"{col_letter}{current_row}"
-                            ws.add_image(ox_img)
                             
-                            rows_needed = int(dh // 15) + 1
-                            for r_off in range(rows_needed):
-                                ws.row_dimensions[current_row + r_off].height = 15
-                            current_row += rows_needed
-                            current_row += 1
+                            if ry0 < 60 and rx0 < 120:
+                                ox_img.anchor = f"{col_letter}1"
+                                logo_w_excel = dw / 7.5
+                                ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, logo_w_excel)
+                                ws.add_image(ox_img)
+                            else:
+                                ox_img.anchor = f"{col_letter}{current_row}"
+                                ws.add_image(ox_img)
+                                rows_needed = int(dh // 15) + 1
+                                for r_off in range(rows_needed):
+                                    ws.row_dimensions[current_row + r_off].height = 15
+                                current_row += rows_needed
+                                current_row += 1
                     except Exception as e_img:
                         print("Failed to embed image assets in Excel:", e_img)
                     
