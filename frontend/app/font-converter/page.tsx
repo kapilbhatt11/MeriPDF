@@ -671,12 +671,12 @@ export default function FontConverter() {
               onChange={(e) => setConversionType(e.target.value as ConversionType)}
               className="px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-orange-500"
             >
-              <option value="krutidev_to_unicode">Kruti Dev 010 ➜ Unicode</option>
-              <option value="unicode_to_krutidev">Unicode ➜ Kruti Dev 010</option>
-              <option value="devlys_to_unicode">DevLys 010 ➜ Unicode</option>
-              <option value="unicode_to_devlys">Unicode ➜ DevLys 010</option>
-              <option value="preeti_to_unicode">Preeti (Nepali) ➜ Unicode</option>
-              <option value="unicode_to_preeti">Unicode ➜ Preeti (Nepali)</option>
+              <option value="krutidev_to_unicode">Kruti Dev 010 ➜ Unicode (Mangal)</option>
+              <option value="unicode_to_krutidev">Unicode (Mangal) ➜ Kruti Dev 010</option>
+              <option value="devlys_to_unicode">DevLys 010 ➜ Unicode (Mangal)</option>
+              <option value="unicode_to_devlys">Unicode (Mangal) ➜ DevLys 010</option>
+              <option value="preeti_to_unicode">Preeti (Nepali) ➜ Unicode (Mangal)</option>
+              <option value="unicode_to_preeti">Unicode (Mangal) ➜ Preeti (Nepali)</option>
             </select>
           </div>
 
