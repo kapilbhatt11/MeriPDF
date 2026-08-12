@@ -22,13 +22,15 @@ import {
   Sparkles,
   Menu,
   X,
-  User
+  User,
+  Languages
 } from "lucide-react";
 
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [multiToolOpen, setMultiToolOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userLabel, setUserLabel] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
@@ -267,6 +269,7 @@ export default function Navbar() {
   // Close menus on path transition
   useEffect(() => {
     setDropdownOpen(false);
+    setMultiToolOpen(false);
     setMobileMenuOpen(false);
   }, [pathname]);
 
@@ -312,9 +315,54 @@ export default function Navbar() {
           <Link href="/" className="text-xs font-bold text-slate-600 hover:text-orange-650 hover:bg-orange-50 px-3 py-2 rounded-xl transition-all">
             Home
           </Link>
-          <Link href="/upload" className="text-xs font-bold text-slate-600 hover:text-orange-650 hover:bg-orange-50 px-3 py-2 rounded-xl transition-all">
-            Upload
-          </Link>
+          {/* Multi-Tool Dropdown */}
+          <div 
+            className="relative"
+            onMouseEnter={() => setMultiToolOpen(true)}
+            onMouseLeave={() => setMultiToolOpen(false)}
+          >
+            <button 
+              type="button" 
+              suppressHydrationWarning={true}
+              className={`text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1 cursor-pointer ${
+                multiToolOpen ? "bg-orange-50 text-orange-600" : "text-slate-600 hover:text-orange-655 hover:bg-orange-50"
+              }`}
+            >
+              Multi-Tool
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-250 ${multiToolOpen ? "rotate-180 text-orange-600" : "text-slate-400"}`} />
+            </button>
+
+            {multiToolOpen && (
+              <div className="absolute left-1/2 -translate-x-1/2 top-full w-[240px] z-50 pt-1 animate-in fade-in slide-in-from-top-3 duration-250">
+                <div className="bg-white border border-slate-200/90 rounded-2.5xl shadow-2xl p-2 flex flex-col gap-1 backdrop-blur-lg">
+                  <Link 
+                    href="/font-converter"
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-orange-50/40 border border-transparent hover:border-orange-100/50 transition-all group"
+                  >
+                    <div className="p-1.5 rounded-lg border shrink-0 text-orange-650 text-orange-600 bg-orange-50 border-orange-100 group-hover:scale-105 transition-all">
+                      <Languages className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-orange-600 transition-colors font-sans">Font Converter</p>
+                      <p className="text-[9px] text-slate-500 font-semibold leading-tight font-sans">Remington ⇄ Unicode</p>
+                    </div>
+                  </Link>
+                  <Link 
+                    href="/upload"
+                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-orange-50/40 border border-transparent hover:border-orange-100/50 transition-all group"
+                  >
+                    <div className="p-1.5 rounded-lg border shrink-0 text-emerald-600 bg-emerald-50 border-emerald-100 group-hover:scale-105 transition-all">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-orange-600 transition-colors font-sans">OCR & Scan PDF</p>
+                      <p className="text-[9px] text-slate-500 font-semibold leading-tight font-sans">Make PDFs searchable</p>
+                    </div>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
           <Link href="/documents" className="text-xs font-bold text-slate-600 hover:text-orange-650 hover:bg-orange-50 px-3 py-2 rounded-xl transition-all">
             Documents
           </Link>
@@ -474,7 +522,10 @@ export default function Navbar() {
           <div className="flex flex-col gap-4">
             <span className="text-[9px] text-slate-405 text-slate-400 uppercase tracking-widest font-black">Main Navigator</span>
             <Link href="/" className="text-sm font-bold text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all">Home</Link>
-            <Link href="/upload" className="text-sm font-bold text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all">Upload Documents</Link>
+            <Link href="/upload" className="text-sm font-bold text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all">Upload Documents (OCR)</Link>
+            <Link href="/font-converter" className="text-sm font-bold text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5">
+              Hindi Font Converter <span className="bg-orange-100 text-orange-700 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-orange-200">NEW</span>
+            </Link>
             <Link href="/documents" className="text-sm font-bold text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all">My Workspace</Link>
             <Link href="/analytics" className="text-sm font-bold text-slate-705 text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all">Analytics & Savings</Link>
             <Link href="/pricing" className="text-sm font-bold text-slate-705 text-slate-700 hover:text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-all font-extrabold flex items-center gap-1.5">

@@ -1279,6 +1279,10 @@ async def pdf_to_ppt(
             page = doc.load_page(page_num)
             slide = prs.slides.add_slide(blank_slide_layout)
 
+            # Determine OCR requirement and obtain page elements dictionary at the beginning
+            use_ocr = page_needs_ocr(page) if mode in ["hybrid", "editable"] else False
+            page_dict = await asyncio.to_thread(get_page_elements, page, use_ocr) if mode in ["hybrid", "editable"] else {"blocks": []}
+
             p_width = page.rect.width
             p_height = page.rect.height
             aspect_page = p_width / p_height
@@ -1421,7 +1425,6 @@ async def pdf_to_ppt(
                                             try:
                                                 cx0, cy0, cx1, cy1 = cell_rect
                                                 spans_in_cell = []
-                                                page_dict = page.get_text("dict")
                                                 for b in page_dict.get("blocks", []):
                                                     if b.get("type") == 0:
                                                         for l in b.get("lines", []):
@@ -1432,6 +1435,11 @@ async def pdf_to_ppt(
                                                 if spans_in_cell:
                                                     first_span_color = spans_in_cell[0].get("color", 0)
                                                     cell_color = safe_rgb_color(first_span_color)
+                                                    
+                                                    # If using OCR, extract cell text value from the overlapping OCR spans rather than digital grid
+                                                    if use_ocr:
+                                                        sorted_cell_spans = sorted(spans_in_cell, key=lambda s: (s.get("bbox", (0,0,0,0))[1], s.get("bbox", (0,0,0,0))[0]))
+                                                        val = " ".join(s.get("text", "") for s in sorted_cell_spans).strip()
                                             except Exception:
                                                 pass
 
@@ -1553,8 +1561,6 @@ async def pdf_to_ppt(
             # 4. Reconstruct Text Blocks (Hybrid and Editable modes)
             if mode in ["hybrid", "editable"]:
                 try:
-                    # Automatically fallback to OCR layout details if legacy fonts or scanned pages are detected
-                    page_dict = await asyncio.to_thread(get_page_elements, page, False)
                     for block in page_dict.get("blocks", []):
                         if block.get("type") == 0:
                             for line in block.get("lines", []):
@@ -3275,5 +3281,375 @@ async def document_thumbnail(file: UploadFile = File(...)):
             except: pass
         print("Thumbnail Generation Error:", e)
         raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {str(e)}")
+
+
+# ==============================================================================
+# HINDI & NEPALI FONT CONVERTER SUITE LOGIC
+# ==============================================================================
+
+from pydantic import BaseModel
+
+class FontConvertRequest(BaseModel):
+    text: str
+    conversion_type: str  # e.g., 'krutidev_to_unicode', 'unicode_to_krutidev', ...
+
+DEVLYS_ARRAY_ONE = [
+    "ñ","Q+Z","sas","aa",")Z","ZZ","‘","’","“","”",
+    "å",  "ƒ",  "„",   "…",   "†",   "‡",   "ˆ",   "‰",   "Š",   "‹", 
+    "¶+",   "d+", "[+k","[+", "x+",  "T+",  "t+", "M+", "<+", "Q+", ";+", "j+", "u+",
+    "Ùk", "Ù", "ä", "–", "—","é","™","=kk","f=k",  
+    "à",   "á",    "â",   "ã",   "ºz",  "º",   "í", "{k", "{", "=",  "«",   
+    "Nî",   "Vî",    "Bî",   "Mî",   "<î", "|", "K", "}",
+    "J",   "Vª",   "Mª",  "<ªª",  "Nª",   "Ø",  "Ý", "nzZ",  "æ", "ç", "Á", "xz", "#", ":",
+    "v‚","vks",  "vkS",  "vk",    "v",  "b±", "Ã",  "bZ",  "b",  "m",  "Å",  ",s",  ",",   "_",
+    "ô",  "d", "Dk", "D", "[k", "[", "x","Xk", "X", "Ä", "?k", "?",   "³", 
+    "pkS",  "p", "Pk", "P",  "N",  "t", "Tk", "T",  ">", "÷", "¥",
+    "ê",  "ë",   "V",  "B",   "ì",   "ï", "M+", "<+", "M",  "<", ".k", ".",    
+    "r",  "Rk", "R",   "Fk", "F",  ")", "n", "/k", "èk",  "/", "Ë", "è", "u", "Uk", "U",   
+    "i",  "Ik", "I",   "Q",    "¶",  "c", "Ck",  "C",  "Hk",  "H", "e", "Ek",  "E",
+    ";",  "¸",   "j",    "y", "Yk",  "Y",  "G",  "o", "Ok", "O",
+    "'k", "'",   "\"k",  "\"",  "l", "Lk",  "L",   "g", 
+    "È", "z", 
+    "Ì", "Í", "Î",  "Ï",  "Ñ",  "Ò",  "Ó",  "Ô",   "Ö",  "Ø",  "Ù","Ük", "Ü",
+    "‚",    "ks",   "kS",   "k",  "h",    "q",   "w",   "`",    "s",    "S",
+    "a",    "¡",    "%",     "W",  "•", "·", "∙", "·", "~j",  "~", "\\","+"," ः",
+    "^", "*",  "Þ", "ß", "(", "¼", "½", "¿", "À", "¾", "A", "-", "&", "&", "Œ", "]","~ ","@"
+]
+
+DEVLYS_ARRAY_TWO = [
+    "॰","QZ+","sa","a","र्द्ध","Z","\"","\"","'","'",
+    "०",  "१",  "२",  "३",     "४",   "५",  "६",   "७",   "८",   "९",   
+    "फ़्",  "क़",  "ख़", "ख़्",  "ग़", "ज़्", "ज़",  "ड़",  "ढ़",   "फ़",  "य़",  "ऱ",  "ऩ",
+    "त्त", "त्त्", "क्त",  "दृ",  "कृ","न्न","न्न्","=k","f=",
+    "ह्न",  "ह्य",  "हृ",  "ह्म",  "ह्र",  "ह्",   "द्द",  "क्ष", "क्ष्", "त्र", "त्र्", 
+    "छ्य",  "ट्य",  "ठ्य",  "ड्य",  "ढ्य", "द्य", "ज्ञ", "द्व",
+    "श्र",  "ट्र",    "ड्र",    "ढ्र",    "छ्र",   "क्र",  "फ्र", "र्द्र",  "द्र",   "प्र", "प्र",  "ग्र", "रु",  "रू",
+    "ऑ",   "ओ",  "औ",  "आ",   "अ", "ईं", "ई",  "ई",   "इ",  "उ",   "ऊ",  "ऐ",  "ए", "ऋ",
+    "क्क", "क", "क", "क्", "ख", "ख्", "ग", "ग", "ग्", "घ", "घ", "घ्", "ङ",
+    "चै",  "च", "च", "च्", "छ", "ज", "ज", "ज्",  "झ",  "झ्", "ञ",
+    "टृ",   "ट्ठ",   "ट",   "ठ",   "ड्ड",   "ड्ढ",  "ड़", "ढ़", "ड",   "ढ", "ण", "ण्",   
+    "त", "त", "त्", "थ", "थ्",  "द्ध",  "द", "ध", "ध", "ध्", "ध्", "ध्", "न", "न", "न्",    
+    "प", "प", "प्",  "फ", "फ्",  "ब", "ब", "ब्",  "भ", "भ्",  "म",  "म", "म्",  
+    "य", "य्",  "र", "ल", "ल", "ल्",  "ळ",  "व", "व", "व्",   
+    "श", "श्",  "ष", "ष्", "स", "स", "स्", "ह", 
+    "ीं", "्र",    
+    "द्द", "ट्ट","ट्ठ","ड्ड","कृ","भ","्य","ड्ढ","झ्","क्र","त्त्","श","श्",
+    "ॉ",  "ो",   "ौ",   "ा",   "ी",   "ु",   "ू",   "ृ",   "े",   "ै",
+    "ं",   "ँ",   "ः",   "ॅ",  "ऽ", "ऽ", "ऽ", "ऽ", "्र",  "्", "?", "़",":",
+    "‘",   "’",   "“",   "”",  ";",  "(",    ")",   "{",    "}",   "=", "।", ".", "-",  "µ", "॰", ",","् ","/"
+]
+
+UNICODE_TO_KRUTIDEV_ONE = [
+    "‘",   "’",   "“",   "”",   "(",    ")",   "{",    "}",   "=", "।",  "?",  "-",  "µ", "॰", ",", ".", "् ", 
+    "०",  "१",  "२",  "३",     "४",   "५",  "६",   "७",   "८",   "९", "x", 
+    "फ़्",  "क़",  "ख़",  "ग़", "ज़्", "ज़",  "ड़",  "ढ़",   "फ़",  "य़",  "ऱ",  "ऩ",
+    "त्त्",   "त्त",     "क्त",  "दृ",  "कृ",
+    "ह्न",  "ह्य",  "हृ",  "ह्म",  "ह्र",  "ह्",   "द्द",  "क्ष्", "क्ष", "त्र्", "त्र","ज्ञ",
+    "छ्य",  "ट्य",  "ठ्य",  "ड्य",  "ढ्य", "द्य","द्व",
+    "श्र",  "ट्र",    "ड्र",    "ढ्र",    "छ्र",   "क्र",  "फ्र",  "द्र",   "प्र",   "ग्र", "रु",  "रू",
+    "्र",
+    "ओ",  "औ",  "आ",   "अ",   "ई",   "इ",  "उ",   "ऊ",  "ऐ",  "ए", "ऋ",
+    "क्",  "क",  "क्क",  "ख्",   "ख",    "ग्",   "ग",  "घ्",  "घ",    "ङ",
+    "चै",   "च्",   "च",   "छ",  "ज्", "ज",   "झ्",  "झ",   "ञ",
+    "ट्ट",   "ट्ठ",   "ट",   "ठ",   "ड्ड",   "ड्ढ",  "ड",   "ढ",  "ण्", "ण",  
+    "त्",  "त",  "थ्", "थ",  "द्ध",  "द", "ध्", "ध",  "न्",  "न",  
+    "प्",  "प",  "फ्", "फ",  "ब्",  "ब", "भ्",  "भ",  "म्",  "म",
+    "य्",  "य",  "र",  "ल्", "ल",  "ळ",  "व्",  "व", 
+    "श्", "श",  "ष्", "ष",  "स्",   "स",   "ह",     
+    "ऑ",   "ॉ",  "ो",   "ौ",   "ा",   "ी",   "ु",   "ू",   "ृ",   "े",   "ै",
+    "ं",   "ँ",   "ः",   "ॅ",    "ऽ",  "् ", "्"
+]
+
+UNICODE_TO_KRUTIDEV_TWO = [
+    "^", "*",  "Þ", "ß", "¼", "½", "¿", "À", "¾", "A", "\\", "&", "&", "Œ", "]","-","~ ", 
+    "å",  "ƒ",  "„",   "…",   "†",   "‡",   "ˆ",   "‰",   "Š",   "‹","Û",
+    "¶",   "d",    "[k",  "x",  "T",  "t",   "M+", "<+", "Q",  ";",    "j",   "u",
+    "Ù",   "Ùk",   "ä",    "–",   "—",       
+    "à",   "á",    "â",   "ã",   "ºz",  "º",   "í", "{", "{k",  "«", "=","K", 
+    "Nî",   "Vî",    "Bî",   "Mî",   "<î", "|","}",
+    "J",   "Vª",   "Mª",  "<ªª",  "Nª",   "Ø",  "Ý",   "æ", "ç", "xz", "#", ":",
+    "z",
+    "vks",  "vkS",  "vk",    "v",   "bZ",  "b",  "m",  "Å",  ",s",  ",",   "_",
+    "D",  "d",    "ô",     "[",     "[k",    "X",   "x",  "?",    "?k",   "³", 
+    "pkS",  "P",    "p",  "N",   "T",    "t",   "÷",  ">",   "¥",
+    "ê",      "ë",      "V",  "B",   "ì",       "ï",     "M",  "<",  ".", ".k",   
+    "R",  "r",   "F", "Fk",  ")",    "n", "/",  "/k",  "U", "u",   
+    "I",  "i",   "¶", "Q",   "C",  "c",  "H",  "Hk", "E",   "e",
+    "¸",   ";",    "j",  "Y",   "y",  "G",  "O",  "o",
+    "'", "'k",  "\"", "\"k", "L",   "l",   "g",      
+    "v‚",    "‚",    "ks",   "kS",   "k",     "h",    "q",   "w",   "`",    "s",    "S",
+    "a",    "¡",    "%",     "W",   "·",   "~ ", "~"
+]
+
+PREETI_UNICODE_DICT = {
+    "अ": "c", "आ": "cf", "ा": "f", "इ": "O", "ई": "O{", "र्": "{", "उ": "p", "ए": "P",
+    "े": "]", "ै": "}", "ो": "f]", "ौ": "f}", "ओ": "cf]", "औ": "cf}", "ं": "+", "ँ": "F",
+    "ि": "l", "ी": "L", "ु": "'", "ू": '"', "क": "s", "ख": "v", "ग": "u", "घ": "3",
+    "ङ": "ª", "च": "r", "छ": "5", "ज": "h", "झ": "´", "ञ": "`", "ट": "6", "ठ": "7",
+    "ड": "8", "ढ": "9", "ण": "0f", "त": "t", "थ": "y", "द": "b", "ध": "w", "न": "g",
+    "प": "k", "फ": "km", "ब": "a", "भ": "e", "म": "d", "य": "o", "र": "/", "रू": "?",
+    "ृ": "[", "ल": "n", "व": "j", "स": ";", "श": "z", "ष": "if", "ज्ञ": "1", "ह": "x",
+    "१": "!", "२": "@", "३": "#", "४": "$", "५": "%", "६": "^", "७": "&", "८": "*",
+    "९": "(", "०": ")", "।": ".", "्": "\\", "ऊ": "pm", "-": " ", "(": "-", ")": "_"
+}
+
+PREETI_TO_UNICODE_DICT = {
+    "÷": "/", "v": "ख", "r": "च", "\"": "ू", "~": "ञ्", "z": "श", "ç": "ॐ", "f": "ा",
+    "b": "द", "n": "ल", "j": "व", "×": "×", "V": "ख्", "R": "च्", "ß": "द्म", "^": "६",
+    "Û": "!", "Z": "श्", "F": "ँ", "B": "द्य", "N": "ल्", "Ë": "ङ्ग", "J": "व्", "6": "ट",
+    "2": "द्द", "¿": "रू", ">": "श्र", ":": "स्", "§": "ट्ट", "&": "७", "£": "घ्",
+    "•": "ड्ड", ".": "।", "«": "्र", "*": "८", "„": "ध्र", "w": "ध", "s": "क", "g": "न",
+    "æ": "“", "c": "अ", "o": "य", "k": "प", "W": "ध्", "Ö": "=", "S": "क्", "Ò": "¨",
+    "_": ")", "[": "ृ", "Ú": "’", "G": "न्", "ˆ": "फ्", "C": "ऋ", "O": "इ", "Î": "ङ्ख",
+    "K": "प्", "7": "ठ", "¶": "ठ्ठ", "3": "घ", "9": "ढ", "?": "रु", ";": "स", "'": "ु",
+    "#": "३", "¢": "द्घ", "/": "र", "+": "ं", "ª": "ङ", "t": "त", "p": "उ", "|": "्र",
+    "x": "ह", "å": "द्व", "d": "म", "`": "ञ", "l": "ि", "h": "ज", "T": "त्", "P": "ए",
+    "Ý": "ट्ठ", "\\": "्", "Ù": ";", "X": "ह्", "Å": "हृ", "D": "म्", "@": "२", "Í": "ङ्क",
+    "L": "ी", "H": "ज्", "4": "द्ध", "±": "+", "0": "ण्", "<": "?", "8": "ड", "¥": "र्‍",
+    "$": "४", "¡": "ज्ञ्", ",": ",", "©": "र", "(": "९", "‘": "ॅ", "u": "ग", "q": "त्र",
+    "}": "ै", "y": "थ", "e": "भ", "a": "ब", "i": "ष्", "‰": "झ्", "U": "ग्", "Q": "त्त",
+    "]": "े", "˜": "ऽ", "Y": "थ्", "Ø": "्य", "E": "भ्", "A": "ब्", "M": "ः", "Ì": "न्न",
+    "I": "क्ष्", "5": "छ", "´": "झ", "1": "ज्ञ", "°": "ङ्ढ", "=": ".", "Æ": "”",
+    "‹": "ङ्घ", "%": "५", "¤": "झ्", "!": "१", "-": "(", "›": "द्र", ")": "०", "…": "‘",
+    "Ü": "%"
+}
+
+def convert_krutidev_to_unicode(text: str) -> str:
+    if not text:
+        return ""
+    out = text
+    for s_one, s_two in zip(DEVLYS_ARRAY_ONE, DEVLYS_ARRAY_TWO):
+        out = out.replace(s_one, s_two)
+    
+    out = out.replace("±", "Zं")
+    out = out.replace("Æ", "र्f")
+    
+    pos = out.find("f")
+    while pos != -1:
+        if pos + 1 < len(out):
+            next_char = out[pos + 1]
+            out = out[:pos] + next_char + "ि" + out[pos + 2:]
+        else:
+            out = out[:pos] + "ि"
+        pos = out.find("f", pos + 1)
+        
+    out = out.replace("Ç", "fa")
+    out = out.replace("É", "र्fa")
+    pos = out.find("fa")
+    while pos != -1:
+        if pos + 2 < len(out):
+            next_char = out[pos + 2]
+            out = out[:pos] + next_char + "िं" + out[pos + 3:]
+        else:
+            out = out[:pos] + "िं"
+        pos = out.find("fa", pos + 1)
+        
+    out = out.replace("Ê", "ीZ")
+    
+    pos = out.find("ि्")
+    while pos != -1:
+        if pos + 2 < len(out):
+            next_char = out[pos + 2]
+            out = out[:pos] + "्" + next_char + "ि" + out[pos + 3:]
+        pos = out.find("ि्", pos + 2)
+        
+    reph_matras = "अ आ इ ई उ ऊ ए ऐ ओ औ ा ि ी ु ू ृ े ै ो ौ ं : ँ ॅ"
+    reph_matras_set = set(reph_matras.split())
+    pos_z = out.find("Z")
+    while pos_z > 0:
+        prob_pos = pos_z - 1
+        while prob_pos >= 0 and out[prob_pos] in reph_matras_set:
+            prob_pos -= 1
+        chars_to_move = out[prob_pos:pos_z]
+        out = out[:prob_pos] + "र्" + chars_to_move + out[pos_z+1:]
+        pos_z = out.find("Z")
+        
+    return out
+
+def convert_unicode_to_krutidev(text: str) -> str:
+    if not text:
+        return ""
+    import re
+    out = text
+    nuktas = {
+        "क़": "क़", "ख़‌": "ख़", "ग़": "ग़", "ज़": "ज़", "ड़": "ड़", "ढ़": "ढ़", 
+        "ऩ": "ऩ", "फ़": "फ़", "य़": "य़", "ऱ": "ऱ"
+    }
+    for k, v in nuktas.items():
+        out = out.replace(k, v)
+        
+    pos_i = out.find("ि")
+    while pos_i != -1:
+        if pos_i > 0:
+            char_left = out[pos_i - 1]
+            out = out[:pos_i - 1] + "f" + char_left + out[pos_i + 1:]
+            new_pos = pos_i - 1
+            while new_pos > 1 and out[new_pos - 1] == "्":
+                half_cons = out[new_pos - 2]
+                out = out[:new_pos - 2] + "f" + half_cons + "्" + out[new_pos + 1:]
+                new_pos -= 2
+            pos_i = out.find("ि", new_pos + 2)
+        else:
+            pos_i = out.find("ि", pos_i + 1)
+            
+    set_of_matras = "ािीुूृेैोौं:ँॅ"
+    set_matras = set(list(set_of_matras))
+    pos_r = out.find("र्")
+    while pos_r != -1:
+        prob_z = pos_r + 2
+        while prob_z + 1 < len(out) and out[prob_z + 1] in set_matras:
+            prob_z += 1
+        cluster = out[pos_r + 2 : prob_z + 1]
+        out = out[:pos_r] + cluster + "Z" + out[prob_z + 1:]
+        pos_r = out.find("र्")
+        
+    for s_one, s_two in zip(UNICODE_TO_KRUTIDEV_ONE, UNICODE_TO_KRUTIDEV_TWO):
+        out = out.replace(s_one, s_two)
+        
+    return out
+
+def convert_preeti_to_unicode(text: str) -> str:
+    import re
+    if not text:
+        return ""
+    out = "".join(PREETI_TO_UNICODE_DICT.get(c, c) for c in text)
+    out = out.replace("्ा", "")
+    out = re.sub(r"(त्र|त्त)([^उभप]+?)m", r"\1m\2", out)
+    out = out.replace("त्रm", "क्र")
+    out = out.replace("त्तm", "क्त")
+    out = re.sub(r"([^उभप]+?)m", r"m\1", out)
+    out = out.replace("उm", "ऊ")
+    out = out.replace("भm", "झ")
+    out = out.replace("पm", "फ")
+    out = out.replace("इ{", "ई")
+    out = re.sub(r"ि((?:.्)*[^्])", r"\1ि", out)
+    out = re.sub(r"((?:.[ािीुूृेैोौंःँ]*?)){", r"{\1", out)
+    out = re.sub(r"((?:.्)*){", r"{\1", out)
+    out = out.replace("{", "र्")
+    out = re.sub(r"([ाीुूृेैोौंःँ]+?)(्(?:.्)*[^्])", r"\2\1", out)
+    out = re.sub(r"्([ाीुूृेैोौंःँ]+?)((?:.्)*[^्])", r"्\2\1", out)
+    out = re.sub(r"([ंँ])([ािीुूृेैोौः]*)", r"\2\1", out)
+    out = out.replace("ँँ", "ँ").replace("ंं", "ं").replace("ेे", "े").replace("ैै", "ै").replace("ुु", "ु").replace("ूू", "ू")
+    
+    out = re.sub(r"^ः", ":", out)
+    out = out.replace("टृ", "ट्ट").replace("ेा", "ाे").replace("ैा", "ाै")
+    out = out.replace("अाे", "ओ").replace("अाै", "औ").replace("अा", "आ").replace("एे", "ऐ")
+    out = out.replace("ाे", "ो").replace("ाै", "ौ")
+    return out
+
+def convert_unicode_to_preeti(unicodestring: str) -> str:
+    if not unicodestring:
+        return ""
+    index = -1
+    normalized = ""
+    while index + 1 < len(unicodestring):
+        index += 1
+        character = unicodestring[index]
+        try:
+            if character != "र":
+                if index + 2 < len(unicodestring) and unicodestring[index + 1] == "्" and unicodestring[index + 2] not in (" ", "।", ","):
+                    if unicodestring[index + 2] != "र":
+                        preeti_val = PREETI_UNICODE_DICT.get(character)
+                        if preeti_val in list("wertyuxasdghjkzvn"):
+                            normalized += chr(ord(preeti_val) - 32)
+                            index += 1
+                            continue
+                        elif character == "स":
+                            normalized += ":"
+                            index += 1
+                            continue
+                        elif character == "ष":
+                            normalized += "i"
+                            index += 1
+                            continue
+            if index > 0 and index + 1 < len(unicodestring) and unicodestring[index - 1] != "र" and character == "्" and unicodestring[index + 1] == "र":
+                if unicodestring[index - 1] not in ("ट", "ठ", "ड"):
+                    normalized += "|"
+                    index += 1
+                    continue
+                else:
+                    normalized += "«"
+                    index += 1
+                    continue
+        except Exception:
+            pass
+        normalized += character
+        
+    normalized = normalized.replace("त|", "q")
+    
+    converted = ""
+    index = -1
+    while index + 1 < len(normalized):
+        index += 1
+        character = normalized[index]
+        if character == "\ufeff":
+            continue
+        try:
+            if index + 1 < len(normalized) and normalized[index + 1] == "ि":
+                if character == "q":
+                    converted += "l" + character
+                else:
+                    converted += "l" + PREETI_UNICODE_DICT.get(character, character)
+                index += 1
+                continue
+                
+            if index + 2 < len(normalized) and normalized[index + 2] == "ि":
+                if character in list("WERTYUXASDGHJK:ZVN"):
+                    if normalized[index + 1] != "q":
+                        converted += "l" + character + PREETI_UNICODE_DICT.get(normalized[index + 1], normalized[index + 1])
+                        index += 2
+                        continue
+                    else:
+                        converted += "l" + character + "q"
+                        index += 2
+                        continue
+                        
+            if index + 2 < len(normalized) and normalized[index + 1] == "्" and character == "र":
+                if index + 3 < len(normalized) and normalized[index + 3] in ("ा", "ो", "ौ", "े", "ै", "ी"):
+                    converted += PREETI_UNICODE_DICT.get(normalized[index + 2], normalized[index + 2]) + PREETI_UNICODE_DICT.get(normalized[index + 3], normalized[index + 3]) + "{"
+                    index += 3
+                    continue
+                elif index + 3 < len(normalized) and normalized[index + 3] == "ि":
+                    converted += PREETI_UNICODE_DICT.get(normalized[index + 3], normalized[index + 3]) + PREETI_UNICODE_DICT.get(normalized[index + 2], normalized[index + 2]) + "{"
+                    index += 3
+                    continue
+                converted += PREETI_UNICODE_DICT.get(normalized[index + 2], normalized[index + 2]) + "{"
+                index += 2
+                continue
+                
+            if index + 3 < len(normalized) and normalized[index + 3] == "ि":
+                if normalized[index + 2] in ("|", "«"):
+                    if character in list("WERTYUXASDGHJK:ZVNIi"):
+                        converted += "l" + character + PREETI_UNICODE_DICT.get(normalized[index + 1], normalized[index + 1]) + normalized[index + 2]
+                        index += 3
+                        continue
+        except Exception:
+            pass
+            
+        converted += PREETI_UNICODE_DICT.get(character, character)
+        
+    converted = converted.replace("Si", "I").replace("H`", "1").replace("b\\w", "4").replace("z|", ">")
+    converted = converted.replace("/'", "?").replace('/"', "¿").replace("Tt", "Q").replace("b\\lj", "lå")
+    converted = converted.replace("b\\j", "å").replace("0f\\", "0").replace("`\\", "~")
+    return converted
+
+@router.post("/font-convert")
+async def font_convert(request: FontConvertRequest):
+    ctype = request.conversion_type.lower()
+    text = request.text
+    
+    if ctype in ("krutidev_to_unicode", "krutidev_to_mangal", "devlys_to_unicode"):
+        result = convert_krutidev_to_unicode(text)
+    elif ctype in ("unicode_to_krutidev", "mangal_to_krutidev", "unicode_to_devlys"):
+        result = convert_unicode_to_krutidev(text)
+    elif ctype == "preeti_to_unicode":
+        result = convert_preeti_to_unicode(text)
+    elif ctype == "unicode_to_preeti":
+        result = convert_unicode_to_preeti(text)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported conversion type: '{request.conversion_type}'")
+        
+    return {"status": "success", "converted_text": result}
+
 
 

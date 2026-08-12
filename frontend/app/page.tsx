@@ -87,6 +87,7 @@ const toolsData: Category[] = [
   {
     title: "PDF Intelligence (AI)",
     items: [
+      { id: "font-converter", name: "Hindi Font Converter", synonym: "Remington ⇄ Unicode", desc: "Convert Kruti Dev, DevLys, and Preeti legacy Hindi/Nepali fonts to Unicode Mangal offline.", link: "/font-converter", icon: Languages, isReady: true, color: "text-orange-600 bg-orange-100" },
       { id: "summarizer", name: "AI Summarizer", synonym: "Auto-Read", desc: "Get instant smart summaries of long PDFs using AI.", link: "#", icon: Zap, isReady: false, color: "text-slate-400 bg-slate-100" },
       { id: "translate", name: "Translate PDF", synonym: "Language shift", desc: "Translate your documents while retaining layout.", link: "#", icon: Languages, isReady: false, color: "text-slate-400 bg-slate-100" }
     ]
