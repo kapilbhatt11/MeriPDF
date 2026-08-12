@@ -1910,6 +1910,24 @@ async def pdf_to_excel(
             
         ws_created = False
         
+        # Document-level legacy font detection
+        is_legacy_hindi_doc = False
+        try:
+            sample_text = ""
+            for idx in range(min(5, len(doc))):
+                sample_text += doc[idx].get_text()
+            
+            legacy_detect_triggers = [
+                "o'kZ", "ekg", "vk;q", "lhek", "ijh{kk", "vk;ksx", "lsok", "rFkk", 
+                "}kjk", "foHkkx", "fpfd", "vH;f", "vH;", "’kkl", "f’k{k", "fu;e", 
+                "e/;", "çns", "ys[kk", "rduhd", "inks", "ykblsa", "fyfi", "oxZ", 
+                "LFkk", "çf'k", "’kS{k", "’kS", "fyf[kr", "Yksd", "yksd"
+            ]
+            if any(t in sample_text for t in legacy_detect_triggers):
+                is_legacy_hindi_doc = True
+        except Exception as e_detect:
+            print("Language/font detection error:", e_detect)
+        
         # Helper to check if text contains Devanagari characters
         def contains_deva(s: str) -> bool:
             return any(0x0900 <= ord(c) <= 0x097F for c in s)
@@ -1918,8 +1936,9 @@ async def pdf_to_excel(
             if not text:
                 return text
             
-            # Auto-convert legacy font encodings to Unicode
-            text = convert_if_legacy_hindi(text)
+            # Auto-convert legacy font encodings to Unicode only if this is a legacy doc
+            if is_legacy_hindi_doc:
+                text = convert_if_legacy_hindi(text)
             
             # 1. Direct replacements for custom font characters mapping
             replacements = {
@@ -3638,6 +3657,8 @@ def convert_krutidev_to_unicode(text: str) -> str:
 
 def convert_if_legacy_hindi(text: str) -> str:
     if not text:
+        return text
+    if any(0x0900 <= ord(c) <= 0x097F for c in text):
         return text
     # List of telltale legacy font triggers (KrutiDev / Preeti / DevLys indicators)
     triggers = [
