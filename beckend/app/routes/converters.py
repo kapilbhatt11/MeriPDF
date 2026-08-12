@@ -688,7 +688,8 @@ def get_page_elements(page, use_ocr=None):
             for i in range(n_boxes):
                 text = ocr_data['text'][i].strip()
                 conf = float(ocr_data['conf'][i]) if ocr_data['conf'][i] != -1 else 0.0
-                if not text or conf < 30:
+                is_numeric_like = any(c.isdigit() for c in text)
+                if not text or (conf < 30 and not is_numeric_like):
                     continue
                     
                 block_num = ocr_data['block_num'][i]
@@ -1732,6 +1733,99 @@ async def pdf_to_ppt(
         print("PDF to PPT Error:", e)
         raise HTTPException(status_code=500, detail=f"Failed to convert PDF to PPT: {str(e)}")
 
+def find_devanagari_font() -> str | None:
+    import os
+    paths = [
+        "C:\\Windows\\Fonts\\Nirmala.ttf",
+        "C:\\Windows\\Fonts\\mangal.ttf",
+        "C:\\Windows\\Fonts\\arialuni.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf"
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return None
+
+def convert_scanned_pdf_to_digital(pdf_path: str, pages_to_process: list[int]) -> str:
+    import fitz
+    import pytesseract
+    from PIL import Image
+    import io
+    import tempfile
+    import uuid
+    import os
+    
+    doc = fitz.open(pdf_path)
+    new_doc = fitz.open()
+    
+    font_path = find_devanagari_font()
+    
+    from app.routes.converters import page_needs_ocr
+    
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        p_w, p_h = page.rect.width, page.rect.height
+        
+        if page_num in pages_to_process and page_needs_ocr(page):
+            new_page = new_doc.new_page(width=p_w, height=p_h)
+            if font_path:
+                try:
+                    new_page.insert_font(fontname="deva", fontfile=font_path)
+                except Exception:
+                    font_path = None
+                    
+            try:
+                pix = page.get_pixmap(dpi=200)
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data)).convert('L')
+                
+                ocr_data = pytesseract.image_to_data(img, lang="hin+eng", output_type=pytesseract.Output.DICT)
+                n_boxes = len(ocr_data['level'])
+                
+                to_points_x = p_w / pix.width
+                to_points_y = p_h / pix.height
+                
+                for i in range(n_boxes):
+                    text = ocr_data['text'][i].strip()
+                    conf = float(ocr_data['conf'][i]) if ocr_data['conf'][i] != -1 else 0.0
+                    is_numeric_like = any(c.isdigit() for c in text)
+                    if not text or (conf < 30 and not is_numeric_like):
+                        continue
+                    
+                    l_pix = ocr_data['left'][i]
+                    t_pix = ocr_data['top'][i]
+                    w_pix = ocr_data['width'][i]
+                    h_pix = ocr_data['height'][i]
+                    
+                    tx0 = l_pix * to_points_x
+                    ty0 = t_pix * to_points_y
+                    tx1 = (l_pix + w_pix) * to_points_x
+                    ty1 = (t_pix + h_pix) * to_points_y
+                    
+                    rect = fitz.Rect(tx0, ty0, tx1, ty1)
+                    font_sz = max(6.0, min((ty1 - ty0) * 0.8, 14.0))
+                    
+                    try:
+                        if font_path:
+                            new_page.insert_textbox(rect, text, fontsize=font_sz, fontname="deva")
+                        else:
+                            new_page.insert_textbox(rect, text, fontsize=font_sz, fontname="helv")
+                    except Exception:
+                        pass
+            except Exception as e_page:
+                print(f"Failed to digitalize page {page_num}: {e_page}")
+                new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+        else:
+            new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            
+    temp_dir = tempfile.gettempdir()
+    out_pdf = os.path.join(temp_dir, f"digitalized_ocr_{uuid.uuid4().hex[:6]}.pdf")
+    new_doc.save(out_pdf)
+    new_doc.close()
+    doc.close()
+    return out_pdf
+
 # ---------------------------------------------------------------------
 # 📈 PDF to EXCEL (.xlsx)
 # ---------------------------------------------------------------------
@@ -1739,7 +1833,8 @@ async def pdf_to_ppt(
 async def pdf_to_excel(
     file: UploadFile = File(...),
     page_range: str = Form(None),
-    engine: str = Form("auto")
+    engine: str = Form("auto"),
+    include_page_headers: bool = Form(True)
 ):
     from bisect import bisect_left
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1760,13 +1855,16 @@ async def pdf_to_excel(
 
     try:
         temp_dir = tempfile.gettempdir()
-        pdf_path = os.path.join(temp_dir, f"tmp_excel_{file.filename}")
+        import uuid
+        pdf_name = f"tmp_excel_{uuid.uuid4().hex[:6]}_{file.filename}"
+        pdf_path = os.path.join(temp_dir, pdf_name)
+        orig_pdf_path = pdf_path
         
-        with open(pdf_path, "wb") as f_out:
+        with open(orig_pdf_path, "wb") as f_out:
             f_out.write(await file.read())
             
         xlsx_path = os.path.join(temp_dir, f"tables_{file.filename}.xlsx")
-        doc = fitz.open(pdf_path)
+        doc = fitz.open(orig_pdf_path)
         wb = Workbook()
         
         # We will keep track of sheet configurations to support smart continuation sheets
@@ -1781,6 +1879,35 @@ async def pdf_to_excel(
         if not pages_to_process:
             pages_to_process = list(range(len(doc)))
             
+        # Check if we should convert scanned/OCR pages into a spatially reconstructed digital PDF first
+        any_ocr_needed = False
+        if engine == "ocr":
+            any_ocr_needed = True
+        elif engine == "auto":
+            for page_num in pages_to_process:
+                if page_num < len(doc):
+                    if page_needs_ocr(doc[page_num]):
+                        any_ocr_needed = True
+                        break
+                        
+        is_reconstructed_digital = False
+        reconstructed_pdf_path = None
+        if any_ocr_needed:
+            try:
+                # Pre-digitalize scanned pages
+                reconstructed_pdf_path = convert_scanned_pdf_to_digital(orig_pdf_path, pages_to_process)
+                # Reopen doc on the reconstructed digital file!
+                doc.close()
+                pdf_path = reconstructed_pdf_path
+                doc = fitz.open(pdf_path)
+                is_reconstructed_digital = True
+            except Exception as e_recon:
+                print("Failed to pre-digitalize scanned PDF, falling back to page-by-page OCR:", e_recon)
+                try:
+                    doc = fitz.open(orig_pdf_path)
+                except Exception:
+                    pass
+            
         ws_created = False
         
         # Helper to check if text contains Devanagari characters
@@ -1790,6 +1917,9 @@ async def pdf_to_excel(
         def clean_hindi_text(text: str) -> str:
             if not text:
                 return text
+            
+            # Auto-convert legacy font encodings to Unicode
+            text = convert_if_legacy_hindi(text)
             
             # 1. Direct replacements for custom font characters mapping
             replacements = {
@@ -1862,8 +1992,8 @@ async def pdf_to_excel(
             # Restore half consonants followed by spaces
             text = re.sub(r"\u094d\s+", "\u094d", text)
             
-            # 3. Visual vowel reordering: ि followed by consonant cluster -> cluster + ि
-            text = re.sub("\u093F([क-ह](?:\u094D[क-ह])*)", "\\1\u093F", text)
+            # 3. Visual vowel reordering: ि followed by consonant cluster -> cluster + ि (only if visually misplaced)
+            text = re.sub(r"(?<![\u0915-\u0939\u0958-\u095F\u094D])\u093F((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F](?:\u094D\u0930|्र)?)", "\\1\u093F", text)
             
             # 4. Word hacks & cleaner normalizations
             word_hacks = {
@@ -2062,7 +2192,9 @@ async def pdf_to_excel(
                 drawings = []
                 
             # Perform text validation check to fallback to OCR under legacy hijacked mapping or scan
-            if engine == "ocr":
+            if is_reconstructed_digital:
+                use_ocr = False
+            elif engine == "ocr":
                 use_ocr = True
             elif engine == "digital":
                 use_ocr = False
@@ -2085,22 +2217,20 @@ async def pdf_to_excel(
             def is_header_footer(bbox, text_val="", font_sz=11.0) -> bool:
                 if not bbox or len(bbox) < 4:
                     return False
-                if bbox[3] <= 48:
-                    norm_t = normalize_margin_text(text_val)
-                    if norm_t in repeated_margin_texts:
-                        return True
-                    text_clean = text_val.strip().lower()
-                    if "page" in text_clean or "पृष्ठ" in text_clean or text_clean.isdigit():
-                        return True
-                    if len(text_clean) <= 15 and any(x in text_clean for x in ["मण्डल", "भोपाल", "परीक्षा", "नियमपुस्तिका"]):
-                        return True
-                if bbox[1] >= p_h - 48:
-                    norm_t = normalize_margin_text(text_val)
-                    if norm_t in repeated_margin_texts:
-                        return True
-                    text_clean = text_val.strip().lower()
-                    if "page" in text_clean or "पृष्ठ" in text_clean or text_clean.isdigit():
-                        return True
+                text_clean = text_val.strip().lower()
+                if "page" in text_clean or "पृष्ठ" in text_clean or text_clean.isdigit():
+                    return True
+                if not include_page_headers:
+                    if bbox[3] <= 48:
+                        norm_t = normalize_margin_text(text_val)
+                        if norm_t in repeated_margin_texts:
+                            return True
+                        if len(text_clean) <= 15 and any(x in text_clean for x in ["मण्डल", "भोपाल", "परीक्षा", "नियमपुस्तिका"]):
+                            return True
+                    if bbox[1] >= p_h - 48:
+                        norm_t = normalize_margin_text(text_val)
+                        if norm_t in repeated_margin_texts:
+                            return True
                 return False
                 
             # Extract tables: Prioritize Layout-Based pdfplumber Detection
@@ -2110,6 +2240,13 @@ async def pdf_to_excel(
                     if page_num < len(plumb_doc.pages):
                         plumb_page = plumb_doc.pages[page_num]
                         plumb_tables = plumb_page.find_tables()
+                        if not plumb_tables:
+                            plumb_tables = plumb_page.find_tables(table_settings={
+                                "vertical_strategy": "text",
+                                "horizontal_strategy": "text",
+                                "snap_y_tolerance": 8,
+                                "snap_x_tolerance": 8
+                            })
                         for t in plumb_tables:
                             rows = []
                             for r in t.rows:
@@ -2611,6 +2748,17 @@ async def pdf_to_excel(
                     except Exception as e_img:
                         print("Failed to embed image assets in Excel:", e_img)
                     
+        # Check if the document was truncated based on page range
+        if pages_to_process and pages_to_process[-1] < len(doc) - 1 and active_ws is not None:
+            trunc_row = active_ws.max_row + 2
+            active_ws.cell(row=trunc_row, column=1).value = f"[Table truncated to page range {page_range} - Content continues on next page of original PDF]"
+            active_ws.cell(row=trunc_row, column=1).font = Font(name="Calibri", size=11, italic=True, bold=True, color="FFD32F2F") # Red color
+            max_c = active_ws.max_column or 8
+            try:
+                active_ws.merge_cells(start_row=trunc_row, start_column=1, end_row=trunc_row, end_column=max_c)
+            except Exception:
+                pass
+
         if ws_created and "Sheet" in wb.sheetnames:
             del wb["Sheet"]
             
@@ -2625,9 +2773,17 @@ async def pdf_to_excel(
             except Exception:
                 pass
                 
+        # Clean up spatial digital reconstruction file
+        if is_reconstructed_digital and reconstructed_pdf_path and os.path.exists(reconstructed_pdf_path):
+            try:
+                os.remove(reconstructed_pdf_path)
+            except Exception:
+                pass
+                
+        # Clean up original uploaded file
         try:
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
+            if orig_pdf_path and os.path.exists(orig_pdf_path):
+                os.remove(orig_pdf_path)
         except Exception:
             pass
         
@@ -3435,25 +3591,25 @@ def convert_krutidev_to_unicode(text: str) -> str:
     out = out.replace("±", "Zं")
     out = out.replace("Æ", "र्f")
     
-    pos = out.find("f")
-    while pos != -1:
-        if pos + 1 < len(out):
-            next_char = out[pos + 1]
-            out = out[:pos] + next_char + "ि" + out[pos + 2:]
-        else:
-            out = out[:pos] + "ि"
-        pos = out.find("f", pos + 1)
-        
+    import re
     out = out.replace("Ç", "fa")
     out = out.replace("É", "र्fa")
-    pos = out.find("fa")
-    while pos != -1:
-        if pos + 2 < len(out):
-            next_char = out[pos + 2]
-            out = out[:pos] + next_char + "िं" + out[pos + 3:]
-        else:
-            out = out[:pos] + "िं"
-        pos = out.find("fa", pos + 1)
+    
+    # Swap 'f' with the following consonant cluster:
+    # A consonant cluster consists of zero or more half-consonants (consonant + halant),
+    # followed by a full consonant, and optionally a subjoined/trailing 'r' sign.
+    out = re.sub(
+        r"f((?:[\u0915-\u0939\u0958-\u095F]\u094d)*[\u0915-\u0939\u0958-\u095F](?:\u094d\u0930|्र)?)",
+        r"\1ि",
+        out
+    )
+    
+    # Swap 'fa' for short-i + bindu (िं)
+    out = re.sub(
+        r"fa((?:[\u0915-\u0939\u0958-\u095F]\u094d)*[\u0915-\u0939\u0958-\u095F](?:\u094d\u0930|्र)?)",
+        r"\1िं",
+        out
+    )
         
     out = out.replace("Ê", "ीZ")
     
@@ -3464,18 +3620,37 @@ def convert_krutidev_to_unicode(text: str) -> str:
             out = out[:pos] + "्" + next_char + "ि" + out[pos + 3:]
         pos = out.find("ि्", pos + 2)
         
-    reph_matras = "अ आ इ ई उ ऊ ए ऐ ओ औ ा ि ी ु ू ृ े ै ो ौ ं : ँ ॅ"
+    reph_matras = "अ आ इ ई उ ऊ ए ऐ ओ औ ा ि ी ु ू ृ े ै ो ो ौ ं : ँ ॅ"
     reph_matras_set = set(reph_matras.split())
     pos_z = out.find("Z")
     while pos_z > 0:
         prob_pos = pos_z - 1
         while prob_pos >= 0 and out[prob_pos] in reph_matras_set:
             prob_pos -= 1
-        chars_to_move = out[prob_pos:pos_z]
-        out = out[:prob_pos] + "र्" + chars_to_move + out[pos_z+1:]
+        chars_to_move = out[max(0, prob_pos):pos_z]
+        if prob_pos < 0:
+            out = "र्" + chars_to_move + out[pos_z+1:]
+        else:
+            out = out[:prob_pos] + "र्" + chars_to_move + out[pos_z+1:]
         pos_z = out.find("Z")
         
     return out
+
+def convert_if_legacy_hindi(text: str) -> str:
+    if not text:
+        return text
+    # List of telltale legacy font triggers (KrutiDev / Preeti / DevLys indicators)
+    triggers = [
+        "o'kZ", "ekg", "vk;q", "lhek", "ijh{kk", "vk;ksx", "lsok", "rFkk", 
+        "}kjk", "foHkkx", "fpfd", "vH;f", "vH;", "’kkl", "f’k{k", "fu;e", 
+        "e/;", "çns", "ys[kk", "rduhd", "inks", "ykblsa", "fyfi", "oxZ", 
+        "LFkk", "çf'k", "’kS{k", "’kS", "fyf[kr", "Yksd", "yksd", "vk;q"
+    ]
+    import re
+    has_trigger = any(t in text for t in triggers)
+    if has_trigger or re.search(r"\b[a-zA-Z]*[’']/d[a-zA-Z]*\b", text) or re.search(r"f[a-zA-Z][ksS]", text) or re.search(r"[a-zA-Z]Z\b", text):
+        return convert_krutidev_to_unicode(text)
+    return text
 
 def convert_unicode_to_krutidev(text: str) -> str:
     if not text:
@@ -3533,7 +3708,7 @@ def convert_preeti_to_unicode(text: str) -> str:
     out = out.replace("भm", "झ")
     out = out.replace("पm", "फ")
     out = out.replace("इ{", "ई")
-    out = re.sub(r"ि((?:.्)*[^्])", r"\1ि", out)
+    out = re.sub(r"(?<![\u0915-\u0939\u0958-\u095F\u094D])ि((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F](?:\u094D\u0930|्र)?)", r"\1ि", out)
     out = re.sub(r"((?:.[ािीुूृेैोौंःँ]*?)){", r"{\1", out)
     out = re.sub(r"((?:.्)*){", r"{\1", out)
     out = out.replace("{", "र्")

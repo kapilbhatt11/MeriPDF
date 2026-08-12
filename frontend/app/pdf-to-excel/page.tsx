@@ -11,6 +11,7 @@ export default function PdfToExcel() {
   const [loading, setLoading] = useState(false);
   const [pageRange, setPageRange] = useState<string>("");
   const [engine, setEngine] = useState<"auto" | "digital" | "ocr">("auto");
+  const [includePageHeaders, setIncludePageHeaders] = useState<boolean>(true);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [downloadName, setDownloadName] = useState<string>("Converted.xlsx");
   const [showHelp, setShowHelp] = useState(false);
@@ -40,6 +41,7 @@ export default function PdfToExcel() {
       formData.append("page_range", pageRange);
     }
     formData.append("engine", engine);
+    formData.append("include_page_headers", String(includePageHeaders));
 
     try {
       const res = await axios.post(
@@ -181,6 +183,19 @@ export default function PdfToExcel() {
                     </button>
                   ))}
                 </div>
+              </div>
+              
+              <div className="flex items-center gap-2 mt-4 bg-slate-50 border border-slate-200 p-3 rounded-lg shadow-sm">
+                <input
+                  type="checkbox"
+                  id="includePageHeaders"
+                  checked={includePageHeaders}
+                  onChange={(e) => setIncludePageHeaders(e.target.checked)}
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-550 cursor-pointer"
+                />
+                <label htmlFor="includePageHeaders" className="text-xs font-semibold text-slate-800 cursor-pointer select-none">
+                  Include Repeating Table Headers / Letterhead
+                </label>
               </div>
             </div>
           )}
