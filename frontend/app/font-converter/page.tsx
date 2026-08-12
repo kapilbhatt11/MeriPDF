@@ -14,6 +14,30 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { optionalAuthHeaders } from "@/lib/auth";
+import * as pdfjsLib from "pdfjs-dist";
+
+// Initialize pdfjs worker in client-side context
+if (typeof window !== "undefined") {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
+}
+
+const extractTextFromPDF = async (file: File): Promise<string> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  let fullText = "";
+  
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => (item as any).str)
+      .join(" ");
+    fullText += pageText + "\n";
+  }
+  
+  return fullText;
+};
 
 // ==============================================================================
 // 1. MAPPING DICTIONARIES & LOGIC
@@ -455,6 +479,31 @@ export default function FontConverter() {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [fileParsing, setFileParsing] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setFileParsing(true);
+    try {
+      if (file.name.toLowerCase().endsWith(".txt")) {
+        const text = await file.text();
+        setSourceText(text);
+      } else if (file.name.toLowerCase().endsWith(".pdf")) {
+        const text = await extractTextFromPDF(file);
+        setSourceText(text);
+      } else {
+        alert("Unsupported file format! Please upload a .txt or .pdf file.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Error parsing file: " + (err.message || String(err)));
+    } finally {
+      setFileParsing(false);
+      e.target.value = "";
+    }
+  };
 
   // Run Conversion instantly on sourceText change
   useEffect(() => {
@@ -593,9 +642,27 @@ export default function FontConverter() {
         {/* ================= LEFT SIDE: INPUT ================= */}
         <div className="bg-white border border-gray-200 rounded-2xl shadow-md p-5 flex flex-col hover:shadow-lg transition-shadow">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-gray-100 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="bg-orange-500/20 text-orange-700 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs">A</span>
-              <span className="font-bold text-gray-800 text-sm">{getSourceLabel()}</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="bg-orange-500/20 text-orange-700 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs">A</span>
+                <span className="font-bold text-gray-800 text-sm">{getSourceLabel()}</span>
+              </div>
+              
+              {/* File Import Button */}
+              <label 
+                className={`flex items-center gap-1.5 px-3 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-xs font-bold cursor-pointer transition select-none ${fileParsing ? "opacity-60 cursor-not-allowed" : ""}`}
+                title="Import content from local text (.txt) or digital PDF (.pdf) file"
+              >
+                <Download size={13} className="rotate-180 text-orange-600" />
+                <span>{fileParsing ? "Extracting..." : "Import File (.txt, .pdf)"}</span>
+                <input 
+                  type="file" 
+                  accept=".txt,.pdf" 
+                  onChange={handleFileUpload} 
+                  disabled={fileParsing} 
+                  className="hidden" 
+                />
+              </label>
             </div>
             
             {/* Conversion Selector Dropdown */}
@@ -621,7 +688,7 @@ export default function FontConverter() {
                 ? "यहाँ हिंदी / नेपाली यूनिकोड (जैसे मंगल) टेक्स्ट टाइप या पेस्ट करें..." 
                 : "Type or paste legacy text here (e.g., dkj produces कार in Kruti Dev)..."
             }
-            className="w-full h-80 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-gray-850 font-normal placeholder-gray-400 text-base resize-none bg-gray-50/50"
+            className="w-full h-80 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none text-slate-900 font-medium placeholder-gray-400 text-base resize-none bg-gray-50/50"
             style={{
               fontFamily: conversionType.startsWith("unicode_") ? "inherit" : "remington, Courier, monospace"
             }}
@@ -672,7 +739,7 @@ export default function FontConverter() {
             value={targetText}
             readOnly
             placeholder="Converted text will appear here automatically..."
-            className="w-full h-80 px-4 py-3 border border-gray-100 rounded-xl outline-none text-gray-850 bg-gray-50/30 text-base resize-none font-normal"
+            className="w-full h-80 px-4 py-3 border border-gray-200 rounded-xl outline-none text-slate-900 bg-gray-50/30 text-base resize-none font-medium focus:ring-1 focus:ring-gray-300"
             style={{
               fontFamily: conversionType.endsWith("_unicode") ? "inherit" : "remington, Courier, monospace"
             }}
