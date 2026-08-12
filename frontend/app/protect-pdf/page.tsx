@@ -186,7 +186,6 @@ export default function ProtectPDF() {
               <a
                 href={downloadUrl}
                 download={downloadName}
-                onClick={() => setDownloadUrl(null)}
                 className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2.5 rounded-lg hover:bg-green-700 font-bold transition shadow"
               >
                 <FileDown size={18} /> Download Protected PDF

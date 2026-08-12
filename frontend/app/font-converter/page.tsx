@@ -749,17 +749,6 @@ export default function FontConverter() {
             <span className="text-xs text-gray-500">Characters: <strong className="text-gray-800 font-semibold">{targetText.length}</strong></span>
             
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Optional Advanced Backend Route verification testing */}
-              {sourceText && (
-                <button
-                  onClick={handleBackendConvert}
-                  disabled={loading}
-                  className="bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 disabled:opacity-50"
-                  title="Run backend validation converter"
-                >
-                  {loading ? "Verifying..." : "Validate Server API"}
-                </button>
-              )}
 
               {targetText && (
                 <>

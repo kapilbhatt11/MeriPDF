@@ -1665,9 +1665,11 @@ async def pdf_to_ppt(
                                         qa_report["pages"][str(page_num+1)]["edge_iou"] = edge_iou
                                         qa_report["pages"][str(page_num+1)]["fallback_triggered"] = False
 
-                                        # If similarity falls below 92%, fallback this slide to Visual Replica
-                                        if ssim_score < 92.0:
-                                            print(f"[QA Fallback] Slide {page_num + 1} SSIM {ssim_score:.2f}% < 92%. Reverting to Visual Replica.")
+                                        # If similarity falls below threshold, fallback this slide to Visual Replica
+                                        # For editable mode we use a lower threshold of 55.0% to prioritize structural editability
+                                        fallback_threshold = 55.0 if mode == "editable" else 70.0
+                                        if ssim_score < fallback_threshold:
+                                            print(f"[QA Fallback] Slide {page_num + 1} SSIM {ssim_score:.2f}% < {fallback_threshold}%. Reverting to Visual Replica.")
                                             qa_report["pages"][str(page_num+1)]["fallback_triggered"] = True
                                             slide = prs.slides[idx]
                                             for s_shape in list(slide.shapes):
@@ -1770,6 +1772,7 @@ async def pdf_to_excel(
         # We will keep track of sheet configurations to support smart continuation sheets
         active_ws = None
         last_page_headers = None
+        last_page_cols_count = None
         
         temp_images_created = []
         MAX_OCR_PAGES = 16
@@ -2149,14 +2152,19 @@ async def pdf_to_excel(
             
             # Check continuation of tables
             table_header = None
+            col_count_val = None
             if table_list:
                 first_tab = table_list[0]
                 first_tab_grid = first_tab.grid_text
+                col_count_val = first_tab.col_count
                 if first_tab_grid and len(first_tab_grid) > 0:
                     table_header = [str(cell or "").strip() for cell in first_tab_grid[0]]
                     
             is_continuation = False
-            if active_ws is not None and table_header and last_page_headers:
+            if active_ws is not None and col_count_val is not None and last_page_cols_count is not None:
+                if col_count_val == last_page_cols_count:
+                    is_continuation = True
+            elif active_ws is not None and table_header and last_page_headers:
                 if len(table_header) == len(last_page_headers) and all(h1 == h2 for h1, h2 in zip(table_header, last_page_headers)):
                     is_continuation = True
                     
@@ -2168,6 +2176,7 @@ async def pdf_to_excel(
                 ws_created = True
                 active_ws = ws
                 last_page_headers = table_header
+                last_page_cols_count = col_count_val
                 current_row = 1
                 try:
                     ws.views.sheetView[0].showGridLines = True
@@ -2390,7 +2399,9 @@ async def pdf_to_excel(
                                 if tab.grid_text and r_idx < len(tab.grid_text) and c_idx < len(tab.grid_text[r_idx]):
                                     raw_cell_text = str(tab.grid_text[r_idx][c_idx] or "").strip()
                                 
-                                if spans_in_cell:
+                                if not use_ocr and raw_cell_text:
+                                    cell_text = clean_hindi_text(raw_cell_text)
+                                elif spans_in_cell:
                                     # Group spans in cell by baseline (Y coord)
                                     cell_lines = []
                                     sorted_spans_by_y = sorted(spans_in_cell, key=lambda s: s.get("bbox", (0,0,0,0))[1])

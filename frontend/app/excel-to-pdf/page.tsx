@@ -142,7 +142,7 @@ export default function ExcelToPdf() {
 
             {downloadUrl && (
               <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-center animate-in fade-in slide-in-from-bottom-4">
-                <a href={downloadUrl} download={downloadName} onClick={() => setDownloadUrl(null)} className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-bold transition shadow-md w-full justify-center">
+                <a href={downloadUrl} download={downloadName} className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-bold transition shadow-md w-full justify-center">
                   <FileDown size={20} /> Download PDF
                 </a>
               </div>

@@ -257,7 +257,7 @@ export default function PdfToJpg() {
 
             {downloadUrl && (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
-                <a href={downloadUrl} download={downloadName} onClick={() => setDownloadUrl(null)} className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 font-bold transition shadow-sm w-full justify-center">
+                <a href={downloadUrl} download={downloadName} className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 font-bold transition shadow-sm w-full justify-center">
                   <FileDown size={18} /> Download Result
                 </a>
               </div>
