@@ -2196,186 +2196,174 @@ async def pdf_to_excel(
                 "नर्दि": "निर्देश",
 
                 "नधिार्ेंरति": "निर्धारित",
-
                 "नधिरिति": "निर्धारित",
-
                 "प्₹": "प्र.",
-
                 "प् ₹": "प्र.",
-
+                "03 ekg": "03 माह",
+                "17&35 o'kZ": "17-35 वर्ष",
+                "17-35 o'kZ": "17-35 वर्ष",
+                "o'kZ": "वर्ष",
+                "ekg": "माह",
+                "fasa:-": "विषय:-",
+                "fasa": "विषय",
+                "vk;q lhek": "आयु सीमा",
+                "t0df": "10वीं",
             }
 
             for k, v in word_hacks.items():
-
                 text = text.replace(k, v)
 
-                
-
             # Strip remaining visual glyph diacritics
-
             text = text.replace("\u1b45", "") # Remove left-over ᭅ
-
             text = text.replace("\u1c77", "") # Remove left-over ᱷ
-
             text = text.replace("\u1cdf", "") # Remove left-over ᳟
-
             text = text.replace("\u1c6e", "") # Remove left-over ᱮ
-
             return text
-
-
 
         def normalize_margin_text(text: str) -> str:
-
             if not text:
-
                 return ""
-
             import re
-
             text = text.strip().lower()
-
             text = re.sub(r"\d+", "\\\\d", text)
-
             text = re.sub(r"\s+", " ", text)
-
             return text
 
-
-
         repeated_margin_texts = set()
-
         try:
-
             margin_text_page_map = {}
-
             for p_idx in pages_to_process:
-
                 p_temp = doc.load_page(p_idx)
-
                 p_h_val = p_temp.rect.height
-
                 p_dict = p_temp.get_text("dict")
-
                 for bl in p_dict.get("blocks", []):
-
                     if bl.get("type") == 0:
-
                         for ln in bl.get("lines", []):
-
                             for sp in ln.get("spans", []):
-
                                 sb = sp.get("bbox", (0,0,0,0))
-
                                 if sb[3] <= 48 or sb[1] >= p_h_val - 48:
-
                                     s_txt = sp.get("text", "")
-
                                     norm_txt = normalize_margin_text(s_txt)
-
                                     if norm_txt:
-
                                         if norm_txt not in margin_text_page_map:
-
                                             margin_text_page_map[norm_txt] = set()
-
                                         margin_text_page_map[norm_txt].add(p_idx)
-
             for norm_txt, p_set in margin_text_page_map.items():
-
                 if len(p_set) >= 2:
-
                     repeated_margin_texts.add(norm_txt)
-
         except Exception as e_prescan:
-
             print("Repeated margin pre-scan failed:", e_prescan)
 
-            
-
         # Helper to format values (numeric coercion, retaining leading zero IDs)
-
         def format_cell_value(text: str):
-
             if not text:
-
                 return text
 
             # Clean Hindi text first
-
             text = clean_hindi_text(text)
-
             import re
 
             # Clean CID patterns like (cid:1234)
-
             text = re.sub(r"\(cid:\d+\)", "", text)
-
+            # Remove repeating garbage characters e.g. lllHHHkkkhhh -> lHkh
+            text = re.sub(r"([a-zA-Z])\1{2,}", r"\1", text)
             text = re.sub(r"\s+", " ", text).strip()
 
-            
-
             clean = text.replace(",", "").strip()
-
             if not clean:
-
                 return text
 
             # Check integer or decimal format (allow negative)
-
             if clean.replace(".", "", 1).isdigit() or (clean.startswith("-") and clean[1:].replace(".", "", 1).isdigit()):
-
                 if len(clean) > 1 and clean.startswith("0") and not clean.startswith("0."):
-
                     return text
-
                 try:
-
                     if "." in clean:
-
                         return float(clean)
-
                     return int(clean)
-
                 except ValueError:
-
                     return text
-
             return text
 
 
 
         def reconstruct_line_from_spans(spans):
-
             if not spans:
+                return ""
+            
+            # Filter out vertical margin & rotated spans (e.g. side watermark text)
+            valid_spans = []
+            for s in spans:
+                sb = s.get("bbox", (0,0,0,0))
+                w = sb[2] - sb[0]
+                h = sb[3] - sb[1]
+                if h > 35 and w < 20: # Vertical margin text box
+                    continue
+                s_dir = s.get("dir", (1,0))
+                if s_dir and (abs(s_dir[0] - 1.0) > 0.1 or abs(s_dir[1]) > 0.1): # Rotated text
+                    continue
+                valid_spans.append(s)
 
+            if not valid_spans:
                 return ""
 
-            sorted_spans = sorted(spans, key=lambda s: s.get("bbox", (0,0,0,0))[0])
-
+            sorted_spans = sorted(valid_spans, key=lambda s: s.get("bbox", (0,0,0,0))[0])
             line_raw = ""
 
             for i, s in enumerate(sorted_spans):
-
                 txt = s.get("text", "")
-
                 if i > 0:
-
                     prev_s = sorted_spans[i-1]
-
                     prev_bbox = prev_s.get("bbox", (0,0,0,0))
-
                     curr_bbox = s.get("bbox", (0,0,0,0))
-
                     gap = curr_bbox[0] - prev_bbox[2]
-
                     if gap >= 2.0 and not line_raw.endswith(" ") and not txt.startswith(" "):
-
                         line_raw += " "
-
                 line_raw += txt
 
             return clean_hindi_text(line_raw)
+
+        def group_spans_into_columns(spans, gap_threshold=14.0):
+            if not spans:
+                return []
+            valid_spans = []
+            for s in spans:
+                sb = s.get("bbox", (0,0,0,0))
+                w = sb[2] - sb[0]
+                h = sb[3] - sb[1]
+                if h > 35 and w < 20:
+                    continue
+                s_dir = s.get("dir", (1,0))
+                if s_dir and (abs(s_dir[0] - 1.0) > 0.1 or abs(s_dir[1]) > 0.1):
+                    continue
+                valid_spans.append(s)
+
+            if not valid_spans:
+                return []
+
+            sorted_spans = sorted(valid_spans, key=lambda s: s.get("bbox", (0,0,0,0))[0])
+            columns = []
+            curr_col = [sorted_spans[0]]
+
+            for i in range(1, len(sorted_spans)):
+                prev_s = sorted_spans[i-1]
+                curr_s = sorted_spans[i]
+                gap = curr_s.get("bbox", (0,0,0,0))[0] - prev_s.get("bbox", (0,0,0,0))[2]
+                if gap >= gap_threshold:
+                    columns.append(curr_col)
+                    curr_col = [curr_s]
+                else:
+                    curr_col.append(curr_s)
+            if curr_col:
+                columns.append(curr_col)
+
+            res = []
+            for c_spans in columns:
+                txt = reconstruct_line_from_spans(c_spans)
+                if txt.strip():
+                    res.append((c_spans[0].get("bbox", (0,0,0,0))[0], txt.strip(), c_spans[0]))
+            return res
+
 
 
 
@@ -2900,92 +2888,76 @@ async def pdf_to_excel(
             
 
             # Write components to coordinate grid sequentially
-
             for elem in page_elements:
-
                 if elem["type"] == "text_block":
-
                     valid_lines = elem["data"]
-
                     for line in valid_lines:
-
                         spans = line.get("spans", [])
-
-                        line_text = reconstruct_line_from_spans(spans)
-
-                        if not line_text:
-
+                        col_items = group_spans_into_columns(spans, gap_threshold=14.0)
+                        if not col_items:
                             continue
 
-                            
+                        if len(col_items) > 1:
+                            max_font_sz = 11
+                            for col_idx, (x0_pos, col_txt, ref_s) in enumerate(col_items, start=1):
+                                f_name = "Nirmala UI" if contains_deva(col_txt) else "Calibri"
+                                f_sz = int(ref_s.get("size", 11))
+                                max_font_sz = max(max_font_sz, f_sz)
+                                f_flags = ref_s.get("flags", 0)
+                                color_int = ref_s.get("color", 0)
+                                color_r = (color_int >> 16) & 255
+                                color_g = (color_int >> 8) & 255
+                                color_b = color_int & 255
+                                f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
+                                font_nm_lower = ref_s.get("font", "").lower()
+                                f_bold = bool(f_flags & 16) or any(x in font_nm_lower for x in ["bold", "black", "heavy", "semibold"])
+                                f_italic = bool(f_flags & 2) or any(x in font_nm_lower for x in ["italic", "oblique"])
 
-                        ref_s = spans[0]
+                                cell_obj = ws.cell(row=current_row, column=col_idx)
+                                cell_obj.value = format_cell_value(col_txt)
+                                cell_obj.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
+                                cell_obj.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                            ws.row_dimensions[current_row].height = max_font_sz + 6
+                            current_row += 1
+                        else:
+                            x0_pos, line_text, ref_s = col_items[0]
+                            if not line_text:
+                                continue
+                            f_name = "Nirmala UI" if contains_deva(line_text) else "Calibri"
+                            f_sz = int(ref_s.get("size", 11))
+                            f_flags = ref_s.get("flags", 0)
+                            color_int = ref_s.get("color", 0)
+                            color_r = (color_int >> 16) & 255
+                            color_g = (color_int >> 8) & 255
+                            color_b = color_int & 255
+                            f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
+                            font_nm_lower = ref_s.get("font", "").lower()
+                            f_bold = bool(f_flags & 16) or any(x in font_nm_lower for x in ["bold", "black", "heavy", "semibold"])
+                            f_italic = bool(f_flags & 2) or any(x in font_nm_lower for x in ["italic", "oblique"])
 
-                        f_name = "Nirmala UI" if contains_deva(line_text) else "Calibri"
+                            start_col_val = 1
+                            if has_top_left_logo and line.get("bbox", (0,0,0,0))[1] < logo_bottom_y:
+                                start_col_val = 2
 
-                        f_sz = int(ref_s.get("size", 11))
+                            # Only merge header titles (short bold lines) across table columns
+                            if len(line_text) < 40 and f_bold:
+                                table_cols_counts = [len(t.rows[0].cells) for t in table_list if t.rows]
+                                max_cols_val = max(8, max(table_cols_counts) if table_cols_counts else 8)
+                                try:
+                                    ws.merge_cells(start_row=current_row, start_column=start_col_val, end_row=current_row, end_column=max_cols_val)
+                                except Exception:
+                                    pass
 
-                        f_flags = ref_s.get("flags", 0)
-
-                        
-
-                        color_int = ref_s.get("color", 0)
-
-                        color_r = (color_int >> 16) & 255
-
-                        color_g = (color_int >> 8) & 255
-
-                        color_b = color_int & 255
-
-                        f_color = f"FF{color_r:02x}{color_g:02x}{color_b:02x}"
-
-                        
-
-                        font_nm_lower = ref_s.get("font", "").lower()
-
-                        f_bold = bool(f_flags & 16) or any(x in font_nm_lower for x in ["bold", "black", "heavy", "semibold"])
-
-                        f_italic = bool(f_flags & 2) or any(x in font_nm_lower for x in ["italic", "oblique"])
-
-                        
-
-                        table_cols_counts = [len(t.rows[0].cells) for t in table_list if t.rows]
-
-                        max_cols_val = max(8, max(table_cols_counts) if table_cols_counts else 8)
-
-                        
-
-                        start_col_val = 1
-
-                        if has_top_left_logo and line.get("bbox", (0,0,0,0))[1] < logo_bottom_y:
-
-                            start_col_val = 2
-
-                            
-
-                        ws.merge_cells(start_row=current_row, start_column=start_col_val, end_row=current_row, end_column=max_cols_val)
-
-                        
-
-                        cell_obj = ws.cell(row=current_row, column=start_col_val)
-
-                        cell_obj.value = format_cell_value(line_text)
-
-                        cell_obj.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
-
-                        cell_obj.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-                        ws.row_dimensions[current_row].height = f_sz + 6
-
-                        
-
-                        current_row += 1
-
-                        
+                            cell_obj = ws.cell(row=current_row, column=start_col_val)
+                            cell_obj.value = format_cell_value(line_text)
+                            cell_obj.font = Font(name=f_name, size=f_sz, bold=f_bold, italic=f_italic, color=f_color)
+                            cell_obj.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                            ws.row_dimensions[current_row].height = f_sz + 6
+                            current_row += 1
 
                     # Add space after free text block
-
                     current_row += 1
+
 
                     
 
