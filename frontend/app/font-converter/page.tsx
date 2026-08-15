@@ -786,33 +786,79 @@ export default function FontConverter() {
       </div>
 
       {/* --- Educational Remington Typing Helper Panel --- */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mt-8 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4">
-          <Keyboard className="text-orange-500 w-5 h-5" /> Remington Layout & Vowels Conversion Reference
+      <div className="bg-slate-100/90 border border-slate-300 rounded-2xl p-6 mt-8 shadow-sm">
+        <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2 mb-4">
+          <Keyboard className="text-orange-600 w-5 h-5" /> Remington Layout & Vowels Conversion Reference
         </h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-slate-650">
-          <div className="bg-white border rounded-xl p-4 shadow-subtle hover:border-orange-500/25 transition">
-            <h4 className="font-bold text-orange-700 mb-2">Key Mappings (Kruti Dev)</h4>
-            <ul className="space-y-1.5 text-xs">
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">d</kbd> ➜ <span className="font-semibold text-slate-800">क</span> (Ka)</li>
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">k</kbd> ➜ <span className="font-semibold text-slate-800">ा</span> (aa matra)</li>
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">f</kbd> ➜ <span className="font-semibold text-slate-800">ि</span> (chhoti-i matra)</li>
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">s</kbd> ➜ <span className="font-semibold text-slate-800">ए</span> / <span className="font-semibold text-slate-800">े</span> (e / matra)</li>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-slate-800">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-orange-500/40 transition">
+            <h4 className="font-extrabold text-orange-800 mb-3 text-sm flex items-center justify-between">
+              <span>Key Mappings (Kruti Dev)</span>
+              <span className="text-[10px] uppercase tracking-wider bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-bold">Hindi</span>
+            </h4>
+            <ul className="space-y-2.5 text-xs">
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">d</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">क</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(Ka)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">k</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">ा</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(aa matra)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">f</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">ि</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(chhoti-i matra)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">s</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">ए</span> / <span className="font-black text-slate-950 text-base">े</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(e / matra)</span>
+              </li>
             </ul>
           </div>
-          <div className="bg-white border rounded-xl p-4 shadow-subtle hover:border-orange-500/25 transition">
-            <h4 className="font-bold text-orange-700 mb-2">Key Mappings (Preeti)</h4>
-            <ul className="space-y-1.5 text-xs">
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">s</kbd> ➜ <span className="font-semibold text-slate-800">क</span> (Ka)</li>
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">f</kbd> ➜ <span className="font-semibold text-slate-800">ा</span> (aa matra)</li>
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">l</kbd> ➜ <span className="font-semibold text-slate-800">ि</span> (chhoti-i matra)</li>
-              <li><kbd className="px-1.5 py-0.5 border rounded bg-slate-100">]</kbd> ➜ <span className="font-semibold text-slate-800">े</span> (e matra)</li>
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-orange-500/40 transition">
+            <h4 className="font-extrabold text-orange-800 mb-3 text-sm flex items-center justify-between">
+              <span>Key Mappings (Preeti)</span>
+              <span className="text-[10px] uppercase tracking-wider bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold">Nepali</span>
+            </h4>
+            <ul className="space-y-2.5 text-xs">
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">s</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">क</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(Ka)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">f</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">ा</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(aa matra)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">l</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">ि</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(chhoti-i matra)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <kbd className="px-2.5 py-1 border border-slate-800 rounded-md bg-slate-900 text-amber-300 font-mono font-bold text-xs shadow-sm inline-flex items-center justify-center min-w-[28px]">]</kbd> 
+                <span className="text-slate-700 font-bold">➜</span> 
+                <span className="font-black text-slate-950 text-base">े</span> 
+                <span className="font-bold text-slate-900 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-xs ml-auto">(e matra)</span>
+              </li>
             </ul>
           </div>
-          <div className="bg-white border rounded-xl p-4 shadow-subtle hover:border-orange-500/25 transition">
-            <h4 className="font-bold text-orange-700 mb-2">Important Instructions</h4>
-            <p className="text-xs leading-relaxed text-slate-500">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-orange-500/40 transition">
+            <h4 className="font-extrabold text-orange-800 mb-2 text-sm">Important Instructions</h4>
+            <p className="text-xs leading-relaxed text-slate-700 font-medium">
               Legacy fonts use ASCII keyboards to represent Devanagari shapes. In legacy systems, matras are typed before characters. Our converter solves this by automatically reordering conjuncts, matras and half-R (reph) tags into correct Unicode sequence format.
             </p>
           </div>
