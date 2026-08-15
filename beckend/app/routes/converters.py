@@ -25,6 +25,13 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from fastapi.responses import FileResponse, StreamingResponse
 import pytesseract
+import docx
+from docx import Document
+from docx.shared import Inches as DocxInches, Pt as DocxPt, RGBColor as DocxRGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+from docx.oxml import parse_xml, OxmlElement
+from docx.oxml.ns import nsdecls, qn
 
 router = APIRouter(prefix="/converters", tags=["converters"])
 
@@ -389,26 +396,249 @@ async def pdf_to_jpg(
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {e}")
 
 # ---------------------------------------------------------------------
-# 📝 PDF to WORD (.docx)
+# 📝 PDF to WORD (.docx) — SMART HYBRID HIGH-FIDELITY ENGINE
 # ---------------------------------------------------------------------
+def docx_safe_rgb_color(color_val):
+    try:
+        if isinstance(color_val, (tuple, list)):
+            if len(color_val) == 1:
+                val = float(color_val[0])
+                val_int = int(val * 255) if val <= 1.0 else int(val)
+                val_int = max(0, min(255, val_int))
+                return DocxRGBColor(val_int, val_int, val_int)
+            elif len(color_val) == 3:
+                r = int(color_val[0] * 255) if color_val[0] <= 1.0 else int(color_val[0])
+                g = int(color_val[1] * 255) if color_val[1] <= 1.0 else int(color_val[1])
+                b = int(color_val[2] * 255) if color_val[2] <= 1.0 else int(color_val[2])
+                return DocxRGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+            elif len(color_val) == 4:
+                c, m, y, k = color_val
+                r = int(255 * (1.0 - c) * (1.0 - k))
+                g = int(255 * (1.0 - m) * (1.0 - k))
+                b = int(255 * (1.0 - y) * (1.0 - k))
+                return DocxRGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+        elif isinstance(color_val, int):
+            b = color_val & 255
+            g = (color_val >> 8) & 255
+            r = (color_val >> 16) & 255
+            return DocxRGBColor(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+    except Exception:
+        pass
+    return DocxRGBColor(0, 0, 0)
+
+def set_docx_cell_shading(cell, color_hex):
+    if not color_hex:
+        return
+    clean_hex = color_hex.replace("#", "").upper()
+    if clean_hex in ["FFFFFF", "FFFFFFFF", "00000000"]:
+        return
+    if len(clean_hex) == 8:
+        clean_hex = clean_hex[2:]
+    try:
+        shading_xml = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{clean_hex}"/>')
+        cell._tc.get_or_add_tcPr().append(shading_xml)
+    except Exception:
+        pass
+
+def set_docx_cell_borders(cell, color_hex="464646", sz="8", val="single", borders_dict=None):
+    try:
+        clean_hex = color_hex.replace("#", "").upper()
+        if len(clean_hex) == 8:
+            clean_hex = clean_hex[2:]
+        tcPr = cell._tc.get_or_add_tcPr()
+        existing = tcPr.find(qn('w:tcBorders'))
+        if existing is not None:
+            tcPr.remove(existing)
+            
+        tcBorders = OxmlElement('w:tcBorders')
+        sides = ["top", "left", "bottom", "right"]
+        for side in sides:
+            if borders_dict and not borders_dict.get(side, True):
+                b_el = OxmlElement(f'w:{side}')
+                b_el.set(qn('w:val'), 'none')
+                tcBorders.append(b_el)
+            else:
+                b_el = OxmlElement(f'w:{side}')
+                b_el.set(qn('w:val'), val)
+                b_el.set(qn('w:sz'), str(sz))
+                b_el.set(qn('w:space'), '0')
+                b_el.set(qn('w:color'), clean_hex)
+                tcBorders.append(b_el)
+        tcPr.append(tcBorders)
+    except Exception:
+        pass
+
 @router.post("/pdf-to-word")
-async def pdf_to_word(file: UploadFile = File(...)):
+async def pdf_to_word(
+    file: UploadFile = File(...),
+    mode: str = Form("replica"),              # "replica", "editable", "ocr"
+    page_range: str = Form(None),
+    preserve_tables: bool = Form(True),
+    preserve_colors: bool = Form(True),
+    preserve_images: bool = Form(True),
+    preserve_page_size: bool = Form(True),
+    ocr_lang: str = Form("hin+eng")
+):
     try:
         temp_dir = tempfile.gettempdir()
-        pdf_path = os.path.join(temp_dir, f"temp_{file.filename}")
-        docx_path = os.path.join(temp_dir, f"converted_{file.filename}.docx")
+        pdf_bytes = await file.read()
+        pdf_path = os.path.join(temp_dir, f"temp_{uuid.uuid4().hex[:8]}_{file.filename}")
+        docx_path = os.path.join(temp_dir, f"Converted_{os.path.splitext(file.filename)[0]}.docx")
         
         with open(pdf_path, "wb") as f:
-            f.write(await file.read())
+            f.write(pdf_bytes)
             
-        cv = Converter(pdf_path)
-        cv.convert(docx_path)
-        cv.close()
+        doc_fitz = fitz.open(pdf_path)
+        total_pages = len(doc_fitz)
+        pages_to_process = parse_page_range(page_range, total_pages)
+        
+        # Check if any requested page requires OCR
+        any_ocr_needed = any(page_needs_ocr(doc_fitz[p]) for p in pages_to_process)
+        
+        if mode == "ocr" or mode == "editable" or any_ocr_needed:
+            print(f"[PDF-to-Word] Smart Hybrid trigger: processing via Direct High-Fidelity Word Engine (mode={mode}, ocr_needed={any_ocr_needed})...")
+            docx_doc = Document()
+            
+            for p_idx, page_num in enumerate(pages_to_process):
+                page = doc_fitz[page_num]
+                
+                # Add section per page to preserve page geometry & orientation
+                if p_idx > 0:
+                    section = docx_doc.add_section()
+                else:
+                    section = docx_doc.sections[0]
+                    
+                if preserve_page_size:
+                    p_w = page.rect.width
+                    p_h = page.rect.height
+                    section.page_width = DocxPt(p_w)
+                    section.page_height = DocxPt(p_h)
+                    section.top_margin = DocxPt(36)
+                    section.bottom_margin = DocxPt(36)
+                    section.left_margin = DocxPt(36)
+                    section.right_margin = DocxPt(36)
+                    
+                # Extract page elements via OCR / layout parser
+                page_data = get_page_elements(page, use_ocr=(mode == "ocr" or page_needs_ocr(page)))
+                
+                # 1. Process Tables if preserved
+                if preserve_tables:
+                    try:
+                        tabs = page.find_tables()
+                        if tabs and len(tabs.tables) > 0:
+                            for tab in tabs:
+                                extract_tbl = tab.extract()
+                                if extract_tbl and len(extract_tbl) > 0:
+                                    n_rows = len(extract_tbl)
+                                    n_cols = max(len(r) for r in extract_tbl if r)
+                                    tbl_shape = docx_doc.add_table(rows=n_rows, cols=n_cols)
+                                    tbl_shape.alignment = WD_TABLE_ALIGNMENT.CENTER
+                                    
+                                    for r_i, row in enumerate(extract_tbl):
+                                        for c_i, val in enumerate(row):
+                                            if c_i < n_cols and val:
+                                                cell = tbl_shape.cell(r_i, c_i)
+                                                cell.text = str(val).strip()
+                                                if preserve_colors:
+                                                    if r_i == 0:
+                                                        set_docx_cell_shading(cell, "F2F4F7")
+                                                    set_docx_cell_borders(cell, "D0D5DD")
+                                    docx_doc.add_paragraph() # Spacing
+                    except Exception as ex_t:
+                        print("Table extraction warning in PDF-to-Word:", ex_t)
+                        
+                # 2. Process Layout Blocks
+                blocks = page_data.get("blocks", [])
+                sorted_blocks = sort_blocks_reading_order(blocks)
+                
+                for b in sorted_blocks:
+                    if b.get("type") == 0: # Text block
+                        for line in b.get("lines", []):
+                            p = docx_doc.add_paragraph()
+                            p.paragraph_format.space_after = DocxPt(3)
+                            
+                            spans = line.get("spans", [])
+                            for s in spans:
+                                text = s.get("text", "")
+                                if not text:
+                                    continue
+                                run = p.add_run(text)
+                                font_size = s.get("size", 10.5)
+                                run.font.size = DocxPt(max(8.0, min(font_size, 28.0)))
+                                font_name = s.get("font", "Arial")
+                                if "times" in font_name.lower():
+                                    run.font.name = "Times New Roman"
+                                elif "calibri" in font_name.lower():
+                                    run.font.name = "Calibri"
+                                else:
+                                    run.font.name = "Arial"
+                                
+                                if preserve_colors:
+                                    c_val = s.get("color")
+                                    if c_val is not None:
+                                        run.font.color.rgb = docx_safe_rgb_color(c_val)
+                                        
+                                if s.get("flags", 0) & 2:
+                                    run.bold = True
+                                if s.get("flags", 0) & 1:
+                                    run.italic = True
+                                    
+                    elif b.get("type") == 1 and preserve_images: # Image block
+                        try:
+                            bbox = b.get("bbox")
+                            if bbox:
+                                bx0, by0, bx1, by1 = bbox
+                                bw = max(20, int(bx1 - bx0))
+                                bh = max(20, int(by1 - by0))
+                                
+                                pix = page.get_pixmap(clip=fitz.Rect(bx0, by0, bx1, by1))
+                                img_tmp = os.path.join(temp_dir, f"img_{uuid.uuid4().hex[:6]}.png")
+                                pix.save(img_tmp)
+                                
+                                p = docx_doc.add_paragraph()
+                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                p.add_run().add_picture(img_tmp, width=DocxPt(bw))
+                                try:
+                                    os.remove(img_tmp)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                            
+            docx_doc.save(docx_path)
+            
+        else:
+            # Clean digital vector PDF mode: use pdf2docx for exact layout with page filtering
+            try:
+                cv = Converter(pdf_path)
+                if page_range and page_range.strip():
+                    cv.convert(docx_path, pages=pages_to_process)
+                else:
+                    cv.convert(docx_path)
+                cv.close()
+            except Exception as e_pdf2docx:
+                print("pdf2docx failed, falling back to python-docx layout builder:", e_pdf2docx)
+                docx_doc = Document()
+                for page_num in pages_to_process:
+                    page = doc_fitz[page_num]
+                    page_data = page.get_text("dict")
+                    for b in sort_blocks_reading_order(page_data.get("blocks", [])):
+                        if b.get("type") == 0:
+                            for line in b.get("lines", []):
+                                p = docx_doc.add_paragraph()
+                                for s in line.get("spans", []):
+                                    run = p.add_run(s.get("text", ""))
+                                    run.font.size = DocxPt(s.get("size", 10.5))
+                                    if preserve_colors and s.get("color") is not None:
+                                        run.font.color.rgb = docx_safe_rgb_color(s.get("color"))
+                docx_doc.save(docx_path)
+                
+        doc_fitz.close()
         
         return FileResponse(
             docx_path,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename=f"Extracted_{file.filename}.docx"
+            filename=f"Extracted_{os.path.splitext(file.filename)[0]}.docx"
         )
     except Exception as e:
         print("PDF to Word Error:", e)
